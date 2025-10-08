@@ -1,0 +1,30 @@
+{
+"name": "moap-elections-map",
+"version": "1.0.0",
+"private": true,
+"scripts": {
+"dev": "next dev",
+"build": "next build",
+"start": "next start",
+"prepare-data": "ts-node scripts/prepare-data.ts"
+},
+"dependencies": {
+"maplibre-gl": "^4.7.1",
+"next": "^14.2.6",
+"react": "^18.3.1",
+"react-dom": "^18.3.1",
+"recharts": "^2.10.3"
+},
+"devDependencies": {
+"@types/node": "^20.14.9",
+"@types/react": "^18.2.66",
+"@types/react-dom": "^18.2.23",
+"adm-zip": "^0.5.12",
+"autoprefixer": "^10.4.19",
+"csv-parse": "^5.5.6",
+"postcss": "^8.4.39",
+"tailwindcss": "^3.4.10",
+"ts-node": "^10.9.2",
+"typescript": "^5.5.4"
+}
+}
