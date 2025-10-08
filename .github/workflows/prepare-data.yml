@@ -19,9 +19,9 @@ env:
 TARGETS: ${{ secrets.TARGETS }}
 OKRSKY_2025_GEOJSON_URL: ${{ secrets.OKRSKY_2025_GEOJSON_URL }}
 run: |
-npx ts-node scripts/prepare-data.ts || true
+npx ts-node scripts/prepare-data.ts
 - name: Commit generated /public/data
 uses: stefanzweifel/git-auto-commit-action@v5
 with:
 commit_message: "chore(data): update public/data"
-file_pattern: public/data/**
+file_pattern: public/data/** manual/**
