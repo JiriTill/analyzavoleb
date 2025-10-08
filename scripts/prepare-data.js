@@ -66,6 +66,26 @@ function guessProp(obj, candidates) {
 }
 const asStr = (x) => (x == null ? null : String(x).trim());
 
+function parseCsvSmart(raw) {
+  const tryParse = (delim) => {
+    try {
+      return parse(raw, {
+        delimiter: delim,
+        columns: true,
+        bom: true,
+        skip_empty_lines: true,
+        relax_column_count: true,
+        relax_quotes: true,
+      });
+    } catch {
+      return null;
+    }
+  };
+  // zkus ; , a tab
+  return tryParse(";") || tryParse(",") || tryParse("\t");
+}
+
+
 function detectCsv(files, mustHaveCols) {
   for (const f of files) {
     if (!f.toLowerCase().endsWith(".csv")) continue;
@@ -80,18 +100,14 @@ function detectCsv(files, mustHaveCols) {
 
 // ---- čtení CSV (T4 / T4p / číselníky) ----
 function readT4(csvPath) {
-  const rows = parse(fs.readFileSync(csvPath, "utf8"), {
-    delimiter: ";",
-    bom: true,
-    columns: true,
-    skip_empty_lines: true,
-  });
+  const rows = parseCsvSmart(fs.readFileSync(csvPath, "utf8"));
+  if (!rows || !rows[0]) throw new Error("T4: nedokážu parsovat CSV");
   const s = rows[0];
   const OBEC = guessProp(s, ["OBEC", "KOD_OBEC", "CIS_OBEC"]);
-  const OKR = guessProp(s, ["OKRSEK", "CIS_OKRSEK", "CISLO_OKRSKU"]);
-  const VOL = guessProp(s, ["VOL_SEZNAM"]);
-  const VYD = guessProp(s, ["VYD_OBALKY"]);
-  const PL = guessProp(s, ["PL_HL_CELK"]);
+  const OKR  = guessProp(s, ["OKRSEK", "CIS_OKRSEK", "CISLO_OKRSKU"]);
+  const VOL  = guessProp(s, ["VOL_SEZNAM"]);
+  const VYD  = guessProp(s, ["VYD_OBALKY"]);
+  const PL   = guessProp(s, ["PL_HL_CELK"]);
   if (!OBEC || !OKR || !VOL || !VYD || !PL) throw new Error("T4: hlavičky neznámé");
   return rows.map((r) => ({
     OBEC: asStr(r[OBEC]),
@@ -103,17 +119,13 @@ function readT4(csvPath) {
 }
 
 function readT4p(csvPath) {
-  const rows = parse(fs.readFileSync(csvPath, "utf8"), {
-    delimiter: ";",
-    bom: true,
-    columns: true,
-    skip_empty_lines: true,
-  });
+  const rows = parseCsvSmart(fs.readFileSync(csvPath, "utf8"));
+  if (!rows || !rows[0]) throw new Error("T4p: nedokážu parsovat CSV");
   const s = rows[0];
   const OBEC = guessProp(s, ["OBEC", "KOD_OBEC", "CIS_OBEC"]);
-  const OKR = guessProp(s, ["OKRSEK", "CIS_OKRSEK", "CISLO_OKRSKU"]);
+  const OKR  = guessProp(s, ["OKRSEK", "CIS_OKRSEK", "CISLO_OKRSKU"]);
   const KSTR = guessProp(s, ["KSTRANA", "KOD_STRANY"]);
-  const PHL = guessProp(s, ["POC_HLASU"]);
+  const PHL  = guessProp(s, ["POC_HLASU"]);
   if (!OBEC || !OKR || !KSTR || !PHL) throw new Error("T4p: hlavičky neznámé");
   return rows.map((r) => ({
     OBEC: asStr(r[OBEC]),
@@ -125,20 +137,28 @@ function readT4p(csvPath) {
 
 function readCNS(zipDir) {
   const files = listFilesDeep(zipDir).filter((f) => f.toLowerCase().endsWith(".csv"));
-  for (const f of files) {
-    const rows = parse(fs.readFileSync(f, "utf8"), {
-      delimiter: ";",
-      bom: true,
-      columns: true,
-      skip_empty_lines: true,
-    });
+  // upřednostni soubor s „stran“ v názvu, pokud je
+  const ordered = files.sort((a,b) => {
+    const pa = path.basename(a).toLowerCase();
+    const pb = path.basename(b).toLowerCase();
+    const wa = pa.includes("stran") ? 0 : 1;
+    const wb = pb.includes("stran") ? 0 : 1;
+    return wa - wb;
+  });
+  for (const f of ordered) {
+    const rows = parseCsvSmart(fs.readFileSync(f, "utf8"));
+    if (!rows || !rows[0]) continue;
     const s = rows[0];
-    const KSTR = guessProp(s, ["KSTRANA", "KOD_STRANY"]);
-    const NAME = guessProp(s, ["NAZ_STRANA", "NAZEV_STRANA", "NAZEV_SUBJEKTU"]);
+    const KSTR = guessProp(s, ["KSTRANA", "KOD_STRANY", "KOD_SUBJEKTU", "KODSTRANA"]);
+    const NAME = guessProp(s, ["NAZ_STRANA", "NAZEV_STRANA", "NAZEV_SUBJEKTU", "NAZEV"]);
     if (KSTR && NAME) {
       const map = {};
-      for (const r of rows) map[asStr(r[KSTR])] = asStr(r[NAME]);
-      return map;
+      for (const r of rows) {
+        const k = asStr(r[KSTR]);
+        const v = asStr(r[NAME]);
+        if (k && v) map[k] = v;
+      }
+      if (Object.keys(map).length) return map;
     }
   }
   return {};
