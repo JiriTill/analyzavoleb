@@ -1,4 +1,4 @@
-// scripts/prepare-data.js
+/// scripts/prepare-data.js
 // Stáhne a připraví okrsková data pro PSP 2025, KZ 2024, KV 2022 → /public/data
 // Čistý Node.js (funguje v Node 20 s global fetch).
 
@@ -23,26 +23,23 @@ const TARGETS = (process.env.TARGETS || "554821:545911")
     return { obec, momc: momc || null };
   });
 
-// -------------------- utils --------------------
+/* ===================== utils ===================== */
 async function HTTP(url) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
   return res;
 }
-
 async function downloadToFile(url, dest) {
   await fsp.mkdir(path.dirname(dest), { recursive: true });
   const res = await HTTP(url);
   await pipeline(res.body, createWriteStream(dest));
   return dest;
 }
-
 function unzipToDir(zipFile, outDir) {
   const zip = new AdmZip(zipFile);
   zip.extractAllTo(outDir, true);
   return outDir;
 }
-
 function listFilesDeep(dir) {
   const out = [];
   const walk = (d) => {
@@ -54,7 +51,6 @@ function listFilesDeep(dir) {
   walk(dir);
   return out;
 }
-
 function guessProp(obj, candidates) {
   const keys = Object.keys(obj || {});
   for (const c of candidates) {
@@ -69,7 +65,7 @@ function guessProp(obj, candidates) {
 }
 const asStr = (x) => (x == null ? null : String(x).trim());
 
-// chytrý CSV parser: zkus ; , \t, povol uvozovky
+/* chytrý CSV parser: zkus ; , \t, povol uvozovky */
 function parseCsvSmart(raw) {
   const tryParse = (delim) => {
     try {
@@ -88,7 +84,7 @@ function parseCsvSmart(raw) {
   return tryParse(";") || tryParse(",") || tryParse("\t");
 }
 
-// detekce správného CSV souboru podle hlaviček
+/* detekce správného CSV souboru podle hlaviček */
 function detectCsv(files, mustHaveCols) {
   for (const f of files) {
     if (!f.toLowerCase().endsWith(".csv")) continue;
@@ -101,20 +97,29 @@ function detectCsv(files, mustHaveCols) {
   return null;
 }
 
-// -------------------- CSV čtení --------------------
+/* ===================== CSV čtení ===================== */
+function normalizeOkrsekId(v) {
+  if (v == null) return null;
+  const digits = String(v).match(/\d+/g);
+  if (!digits) return null;
+  const num = digits.join("");
+  // běžné okrsky 3–5 číslic; zahoď leading zeros
+  return String(parseInt(num, 10));
+}
+
 function readT4(csvPath) {
   const rows = parseCsvSmart(fs.readFileSync(csvPath, "utf8"));
   if (!rows || !rows[0]) throw new Error("T4: nedokážu parsovat CSV");
   const s = rows[0];
   const OBEC = guessProp(s, ["OBEC", "KOD_OBEC", "CIS_OBEC"]);
-  const OKR = guessProp(s, ["OKRSEK", "CIS_OKRSEK", "CISLO_OKRSKU"]);
-  const VOL = guessProp(s, ["VOL_SEZNAM"]);
-  const VYD = guessProp(s, ["VYD_OBALKY"]);
-  const PL = guessProp(s, ["PL_HL_CELK"]);
+  const OKR  = guessProp(s, ["OKRSEK", "CIS_OKRSEK", "CISLO_OKRSKU"]);
+  const VOL  = guessProp(s, ["VOL_SEZNAM"]);
+  const VYD  = guessProp(s, ["VYD_OBALKY"]);
+  const PL   = guessProp(s, ["PL_HL_CELK"]);
   if (!OBEC || !OKR || !VOL || !VYD || !PL) throw new Error("T4: hlavičky neznámé");
   return rows.map((r) => ({
     OBEC: asStr(r[OBEC]),
-    OKRSEK: asStr(r[OKR]),
+    OKRSEK: normalizeOkrsekId(r[OKR]),
     registered: Number(r[VOL] || 0),
     envelopes: Number(r[VYD] || 0),
     valid: Number(r[PL] || 0),
@@ -126,13 +131,13 @@ function readT4p(csvPath) {
   if (!rows || !rows[0]) throw new Error("T4p: nedokážu parsovat CSV");
   const s = rows[0];
   const OBEC = guessProp(s, ["OBEC", "KOD_OBEC", "CIS_OBEC"]);
-  const OKR = guessProp(s, ["OKRSEK", "CIS_OKRSEK", "CISLO_OKRSKU"]);
+  const OKR  = guessProp(s, ["OKRSEK", "CIS_OKRSEK", "CISLO_OKRSKU"]);
   const KSTR = guessProp(s, ["KSTRANA", "KOD_STRANY", "KOD_SUBJEKTU", "KODSTRANA"]);
-  const PHL = guessProp(s, ["POC_HLASU"]);
+  const PHL  = guessProp(s, ["POC_HLASU"]);
   if (!OBEC || !OKR || !KSTR || !PHL) throw new Error("T4p: hlavičky neznámé");
   return rows.map((r) => ({
     OBEC: asStr(r[OBEC]),
-    OKRSEK: asStr(r[OKR]),
+    OKRSEK: normalizeOkrsekId(r[OKR]),
     party_code: asStr(r[KSTR]),
     votes: Number(r[PHL] || 0),
   }));
@@ -167,9 +172,8 @@ function readCNS(zipDir) {
   return {};
 }
 
-// -------------------- link resolvery --------------------
+/* ===================== link resolvery ===================== */
 async function fetchHtml(url) { return await (await HTTP(url)).text(); }
-
 function allAnchors(html) {
   return [...html.matchAll(/<a\s+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi)]
     .map(m => ({
@@ -178,54 +182,40 @@ function allAnchors(html) {
     }));
 }
 
-// PSP 2025: použijeme pevné odkazy na CSVW zipy (stav k 05.10.2025)
+// PSP 2025 – pevné odkazy (stav k 05.10.2025)
 async function resolvePSP2025() {
   const dataZip = "https://www.volby.cz/opendata/ps2025/PS2025data20251005_csv.zip";
   const cnsZip  = "https://www.volby.cz/opendata/ps2025/PS2025ciselniky20251005_csv.zip";
-  const okrskyUrl = process.env.OKRSKY_2025_GEOJSON_URL || null; // z GitHub Secrets
+  const okrskyUrl = process.env.OKRSKY_2025_GEOJSON_URL || null;
   if (!okrskyUrl) console.warn("[PSP2025] Chybí OKRSKY_2025_GEOJSON_URL (GeoJSON hranic okrsků).");
   return { dataZip, cnsZip, okrskyUrl };
 }
 
-// KZ 2024: zkus chytře vyhledat odkazy, jinak fallback GeoJSON a přeskočit
 async function resolveKZ2024() {
   const html = await fetchHtml("https://www.volby.cz/opendata/kz2024/kz2024_opendata.htm");
   const hrefs = allAnchors(html);
-
   const dataZip = (hrefs.find(h => /okrsk|okrsky|okrsková|okrskov/i.test(h.text) && /\.zip$/i.test(h.href))
-                || hrefs.find(h => /kz2024.*data.*\.zip$/i.test(h.href))
-               )?.href || null;
-
+                || hrefs.find(h => /kz2024.*data.*\.zip$/i.test(h.href)))?.href || null;
   const cnsZip  = (hrefs.find(h => /číselní|ciselnik/i.test(h.text) && /\.zip$/i.test(h.href))
-                || hrefs.find(h => /kz2024.*cisel.*\.zip$/i.test(h.href))
-               )?.href || null;
-
+                || hrefs.find(h => /kz2024.*cisel.*\.zip$/i.test(h.href)))?.href || null;
   const okrskyUrl = (hrefs.find(h => /geojson/i.test(h.text) && /\.geojson$/i.test(h.href))?.href)
                  || "https://www.volby.cz/opendata/kz2024/geo/vol_okrsky_2024g100.geojson";
-
   return { dataZip, cnsZip, okrskyUrl };
 }
 
-// KV 2022: dtto
 async function resolveKV2022() {
   const html = await fetchHtml("https://www.volby.cz/opendata/kv2022/kv2022_opendata.htm");
   const hrefs = allAnchors(html);
-
   const dataZip = (hrefs.find(h => /okrsk|okrsky|okrsková|okrskov/i.test(h.text) && /\.zip$/i.test(h.href))
-                || hrefs.find(h => /kv2022.*data.*\.zip$/i.test(h.href))
-               )?.href || null;
-
+                || hrefs.find(h => /kv2022.*data.*\.zip$/i.test(h.href)))?.href || null;
   const cnsZip  = (hrefs.find(h => /číselní|ciselnik/i.test(h.text) && /\.zip$/i.test(h.href))
-                || hrefs.find(h => /kv2022.*cisel.*\.zip$/i.test(h.href))
-               )?.href || null;
-
+                || hrefs.find(h => /kv2022.*cisel.*\.zip$/i.test(h.href)))?.href || null;
   const okrskyUrl = (hrefs.find(h => /geojson/i.test(h.text) && /\.geojson$/i.test(h.href))?.href)
                  || "https://www.volby.cz/opendata/kv2022/geo/vol_okrsky_2022g100.geojson";
-
   return { dataZip, cnsZip, okrskyUrl };
 }
 
-// -------------------- GeoJSON práce --------------------
+/* ===================== GeoJSON práce ===================== */
 function featureVal(props, candidates, def = null) {
   const k = guessProp(props, candidates);
   return k ? asStr(props[k]) : def;
@@ -233,58 +223,77 @@ function featureVal(props, candidates, def = null) {
 function filterPrecincts(geo, target) {
   const feats = (geo.features || []).filter((f) => {
     const p = f.properties || {};
-    const obec = featureVal(p, ["OBEC", "KOD_OBEC", "CIS_OBEC", "obec_kod", "obec_kód"]);
+    const obec = featureVal(p, ["OBEC","KOD_OBEC","CIS_OBEC","obec_kod","obec_kód"]);
     if (obec !== target.obec) return false;
     if (!target.momc) return true;
-    const momc = featureVal(p, ["MOMC", "KOD_MOMC", "CIS_MOMC", "kod_momc", "momc_kod"]);
+    const momc = featureVal(p, ["MOMC","KOD_MOMC","CIS_MOMC","kod_momc","momc_kod"]);
     return momc === target.momc;
   });
   return { ...geo, features: feats };
 }
 
-function okrSetFromGeo(geo) {
-  const s = new Set();
-  for (const f of geo.features || []) {
-    const p = f.properties || {};
-    const ok = featureVal(p, [
-      "OKRSEK",
-      "CIS_OKRSEK",
-      "CISLO_OKRSKU",
-      "cislo_okrsku",
-      "okrsek",
-      "okrsek_cislo",
-      "cislo_okrsku_text"
-    ]);
-    if (ok) s.add(String(ok));
+/* Jednotná extrakce čísla okrsku z properties + normalizace */
+function extractOkrsekId(props) {
+  if (!props) return null;
+  const preferKeys = [
+    "cislo_okrsku","cis_okrsek","okrsek","okrsek_cislo","cis_ok",
+    "CISLO_OKRSKU","CIS_OKRSEK","OKRSEK"
+  ];
+  for (const k of Object.keys(props)) {
+    const kl = k.toLowerCase();
+    if (preferKeys.some(p => kl === p.toLowerCase() || kl.includes("okrsek"))) {
+      const norm = normalizeOkrsekId(props[k]);
+      if (norm) return norm;
+    }
   }
-  return s;
-}
-
-// -------------------- lokální mandáty --------------------
-function loadManualMandates(tag) {
-  const f = path.join("manual", `mandates_${tag}.json`);
-  if (fs.existsSync(f)) {
-    try {
-      const j = JSON.parse(fs.readFileSync(f, "utf8"));
-      if (Array.isArray(j.parties)) return j.parties.map(String);
-    } catch {}
+  for (const v of Object.values(props)) {
+    const norm = normalizeOkrsekId(v);
+    if (norm && norm.length >= 3 && norm.length <= 5) return norm;
   }
   return null;
 }
 
-// -------------------- sestavení výstupů --------------------
+function okrSetFromGeo(geo) {
+  const s = new Set();
+  for (const f of geo.features || []) {
+    const id = extractOkrsekId(f.properties || {});
+    if (id) s.add(String(id));
+  }
+  return s;
+}
+
+/* doplň do GeoJSON vlastnost `okrsek` (string) – sjednocení pro frontend */
+function normalizeGeoOkrsekProp(geo) {
+  const features = (geo.features || []).map((f) => {
+    const props = { ...(f.properties || {}) };
+    const id = extractOkrsekId(props);
+    if (id) {
+      props.okrsek = String(id);
+      // pro jistotu přidej i alias
+      if (!props.cislo_okrsku) props.cislo_okrsku = String(id);
+    }
+    return { ...f, properties: props };
+  });
+  return { ...geo, features };
+}
+
+/* ===================== sestavení výstupů ===================== */
 function buildResults(t4, t4p, cns, okrSet, allowedNames) {
   const t4Map = new Map();
   for (const r of t4) {
+    if (!r.OKRSEK) continue;
     if (!okrSet.has(r.OKRSEK)) continue;
     t4Map.set(r.OKRSEK, r);
   }
+
   const partiesBy = {};
   for (const row of t4p) {
+    if (!row.OKRSEK) continue;
     if (!okrSet.has(row.OKRSEK)) continue;
     const name = cns[row.party_code] || row.party_code;
     (partiesBy[row.OKRSEK] ||= []).push({ code: row.party_code, name, votes: row.votes });
   }
+
   const out = {};
   for (const [okr, r] of t4Map.entries()) {
     let parties = (partiesBy[okr] || []).sort((a, b) => b.votes - a.votes);
@@ -307,60 +316,62 @@ async function processElection(tag, links) {
 
   if (!links.dataZip || !links.cnsZip) throw new Error(`${tag}: chybí zipy dat/číselníků`);
   const dataZip = await downloadToFile(links.dataZip, path.join(tmp, `${tag}_data.zip`));
-  const cnsZip = await downloadToFile(links.cnsZip, path.join(tmp, `${tag}_cns.zip`));
+  const cnsZip  = await downloadToFile(links.cnsZip,  path.join(tmp, `${tag}_cns.zip`));
   if (!links.okrskyUrl) throw new Error(`${tag}: chybí URL na GeoJSON okrsků`);
   const okrGeoPath = await downloadToFile(links.okrskyUrl, path.join(tmp, `${tag}_okrsky.geojson`));
 
   const dataDir = unzipToDir(dataZip, path.join(tmp, "data"));
-  const cnsDir = unzipToDir(cnsZip, path.join(tmp, "cns"));
+  const cnsDir  = unzipToDir(cnsZip,  path.join(tmp, "cns"));
   const files = listFilesDeep(dataDir);
 
   const t4File =
     detectCsv(files, ["OBEC", "OKRSEK", "VOL_SEZNAM", "VYD_OBALKY", "PL_HL_CELK"]) ||
-    files.find((f) => f.toLowerCase().includes("t4") && f.toLowerCase().endsWith(".csv"));
+    files.find((f) => f.toLowerCase().includes("t4")  && f.toLowerCase().endsWith(".csv"));
   const t4pFile =
     detectCsv(files, ["OBEC", "OKRSEK", "KSTRANA", "POC_HLASU"]) ||
     files.find((f) => f.toLowerCase().includes("t4p") && f.toLowerCase().endsWith(".csv"));
   if (!t4File || !t4pFile) throw new Error(`${tag}: nenašel jsem T4/T4p`);
 
-  const t4 = readT4(t4File);
+  const t4  = readT4(t4File);
   const t4p = readT4p(t4pFile);
   const cns = readCNS(cnsDir);
 
-  const fullGeo = JSON.parse(fs.readFileSync(okrGeoPath, "utf8"));
+  let fullGeo = JSON.parse(fs.readFileSync(okrGeoPath, "utf8"));
+  fullGeo = normalizeGeoOkrsekProp(fullGeo);
+
   const manualMandates = loadManualMandates(tag);
 
   for (const target of TARGETS) {
-      let geoFiltered = filterPrecincts(fullGeo, target);
-      if (!geoFiltered.features || geoFiltered.features.length === 0) {
-        console.warn(`[${tag}] Varování: po filtrování zbylo 0 polygonů pro ${target.obec}:${target.momc}. Zkusím fallback bez filtru.`);
-        geoFiltered = fullGeo; // dočasný fallback, ať vrstva bude vidět
-      }
+    let geoFiltered = filterPrecincts(fullGeo, target);
+    if (!geoFiltered.features || geoFiltered.features.length === 0) {
+      console.warn(`[${tag}] Varování: po filtrování zbylo 0 polygonů pro ${target.obec}:${target.momc}. Fallback bez filtru.`);
+      geoFiltered = fullGeo; // dočasný fallback, ať je vrstva vidět
+    }
+
     const okrSet = okrSetFromGeo(geoFiltered);
     const okrResults = buildResults(t4, t4p, cns, okrSet, manualMandates);
+
+    // diagnostika napárování
+    const matched = Object.keys(okrResults).length;
+    console.log(`[${tag}] ${target.obec}${target.momc ? ":"+target.momc : ""} – polygonů: ${geoFiltered.features.length}, spárované okrsky s výsledky: ${matched}`);
 
     await fsp.mkdir(OUT_DIR, { recursive: true });
     const suffix = target.momc ? `${target.obec}_${target.momc}` : `${target.obec}`;
     fs.writeFileSync(path.join(OUT_DIR, `precincts_${tag}_${suffix}.geojson`), JSON.stringify(geoFiltered));
-    fs.writeFileSync(
-      path.join(OUT_DIR, `results_${tag}_${suffix}.json`),
-      JSON.stringify({
-        meta: { election: tag, target, generated: new Date().toISOString(), source: "volby.cz/ČSÚ" },
-        okrsky: okrResults,
-      })
-    );
+    fs.writeFileSync(path.join(OUT_DIR, `results_${tag}_${suffix}.json`), JSON.stringify({
+      meta: { election: tag, target, generated: new Date().toISOString(), source: "volby.cz/ČSÚ" },
+      okrsky: okrResults,
+    }));
   }
 }
 
-// -------------------- main --------------------
+/* ===================== main ===================== */
 (async function main() {
   await fsp.mkdir(OUT_DIR, { recursive: true });
 
-  // PSP 2025 (stabilní URL)
   const psp = await resolvePSP2025();
   await processElection("psp2025", psp);
 
-  // KZ 2024 – zkus, ale když se linky změnily, build tím nespadne
   try {
     const kz = await resolveKZ2024();
     if (!kz.dataZip || !kz.cnsZip) throw new Error("kz2024: chybí zipy dat/číselníků");
@@ -369,7 +380,6 @@ async function processElection(tag, links) {
     console.warn("[WARN] KZ2024 přeskočeno:", e.message || e);
   }
 
-  // KV 2022 – dtto
   try {
     const kv = await resolveKV2022();
     if (!kv.dataZip || !kv.cnsZip) throw new Error("kv2022: chybí zipy dat/číselníků");
