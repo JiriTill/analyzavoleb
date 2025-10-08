@@ -18,10 +18,8 @@ jobs:
         with:
           node-version: 20
 
-      # pokud nemáš package-lock.json, použij npm install místo npm ci
       - run: npm install
 
-      # rychlá kontrola, že Secrets dorazily
       - name: Check secrets
         run: |
           echo "TARGETS=${{ secrets.TARGETS && 'present' || 'missing' }}"
@@ -31,8 +29,7 @@ jobs:
         env:
           TARGETS: ${{ secrets.TARGETS }}
           OKRSKY_2025_GEOJSON_URL: ${{ secrets.OKRSKY_2025_GEOJSON_URL }}
-          TS_NODE_TRANSPILE_ONLY: "1"
-        run: npx ts-node scripts/prepare-data.ts
+        run: node scripts/prepare-data.js
 
       - name: Commit generated /public/data
         uses: stefanzweifel/git-auto-commit-action@v5
