@@ -1,27 +1,42 @@
 name: Prepare data
+
 on:
-push:
-branches: [ main, master ]
-workflow_dispatch: {}
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
 permissions:
-contents: write
+  contents: write
+
 jobs:
-build:
-runs-on: ubuntu-latest
-steps:
-- uses: actions/checkout@v4
-- uses: actions/setup-node@v4
-with:
-node-version: 20
-- run: npm ci
-- name: Run prepare-data (download + build)
-env:
-TARGETS: ${{ secrets.TARGETS }}
-OKRSKY_2025_GEOJSON_URL: ${{ secrets.OKRSKY_2025_GEOJSON_URL }}
-run: |
-npx ts-node scripts/prepare-data.ts
-- name: Commit generated /public/data
-uses: stefanzweifel/git-auto-commit-action@v5
-with:
-commit_message: "chore(data): update public/data"
-file_pattern: public/data/** manual/**
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # pokud nemáš package-lock.json, použij npm install místo npm ci
+      - run: npm install
+
+      # rychlá kontrola, že Secrets dorazily
+      - name: Check secrets
+        run: |
+          echo "TARGETS=${{ secrets.TARGETS && 'present' || 'missing' }}"
+          echo "OKRSKY_2025_GEOJSON_URL=${{ secrets.OKRSKY_2025_GEOJSON_URL && 'present' || 'missing' }}"
+
+      - name: Run prepare-data (download + build)
+        env:
+          TARGETS: ${{ secrets.TARGETS }}
+          OKRSKY_2025_GEOJSON_URL: ${{ secrets.OKRSKY_2025_GEOJSON_URL }}
+        run: npx ts-node scripts/prepare-data.ts
+
+      - name: Commit generated /public/data
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore(data): update public/data"
+          file_pattern: |
+            public/data/**
+            manual/**
