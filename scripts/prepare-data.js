@@ -70,6 +70,7 @@ function canon(s) {
     .replace(/[\s._-]+/g, "");
 }
 
+// přesné vyhledání podle kandidátů (už v kanonické podobě)
 function guessKey(obj, candidatesCanon) {
   const keys = Object.keys(obj || {});
   const canonMap = new Map(keys.map((k) => [canon(k), k]));
@@ -80,6 +81,16 @@ function guessKey(obj, candidatesCanon) {
   // fallback: substring match
   for (const [ck, orig] of canonMap.entries()) {
     if (candidatesCanon.some((c) => ck.includes(c))) return orig;
+  }
+  return null;
+}
+
+// fuzzy výběr: najdi první key, který obsahuje VŠECHNY zadané tokeny
+function guessKeyByTokens(obj, tokenList /* v kanonické podobě */) {
+  const keys = Object.keys(obj || {});
+  for (const k of keys) {
+    const ck = canon(k);
+    if (tokenList.every((t) => ck.includes(t))) return k;
   }
   return null;
 }
@@ -108,28 +119,40 @@ function readT4(csvPath) {
   const rows = parseCsvSmart(fs.readFileSync(csvPath, "utf8"));
   if (!rows || !rows[0]) throw new Error("T4: nedokážu parsovat CSV");
 
-  // kanonické názvy (bez diakritiky)
+  // kanonické názvy (bez diakritiky); přidány zkrácené varianty z ČSÚ (např. ODEVZ_OBAL)
   const K_OBEC = ["obec", "kodobec", "cisobec"];
   const K_OKR = ["okrsek", "cisokrsek", "cislookrsku"];
   const K_REG = ["volseznam", "volicivseznamu", "zapsvol", "zapsanivolici"];
-  const K_ISS = ["vydobalky", "vydaneobalky"]; // info
-  const K_RET = ["odevzobalky", "odevzdaneobalky", "odevzobal"]; // <-- ZDE JE PROVEDENA OPRAVA
+  const K_ISS = ["vydobalky", "vydaneobalky"]; // nepoužíváme do výpočtu účasti, ale uložíme
+  const K_RET = [
+    "odevzobalky",
+    "odevzdaneobalky",
+    "odevzobal",        // <- ODEVZ_OBAL (zkrácené)
+    "odevzobaly",
+    "odevzdobal"
+  ];
   const K_VALID = ["plhlcelk", "platnehlasy", "plhlcelkem", "platnychlasu"];
 
   const s = rows[0];
-  const OBEC = guessKey(s, K_OBEC);
-  const OKR = guessKey(s, K_OKR);
-  const REG = guessKey(s, K_REG);
-  const ISS = guessKey(s, K_ISS);
-  const RET = guessKey(s, K_RET);
-  const VAL = guessKey(s, K_VALID);
+  let OBEC = guessKey(s, K_OBEC);
+  let OKR = guessKey(s, K_OKR);
+  let REG = guessKey(s, K_REG);
+  let ISS = guessKey(s, K_ISS);
+  let RET = guessKey(s, K_RET);
+  let VAL = guessKey(s, K_VALID);
+
+  // fuzzy fallbacky, když by něco chybělo
+  if (!RET) RET = guessKeyByTokens(s, ["odevz", "obal"]); // kryje ODEVZ_OBAL
+  if (!REG) REG = guessKeyByTokens(s, ["vol", "seznam"]); // VOL_SEZNAM apod.
 
   if (!OBEC || !OKR || !REG || !RET || !VAL) {
     const have = Object.keys(s).join(", ");
     throw new Error(
-      `T4: chybí očekávané sloupce (mám: ${have}). Nutné: OBEC, OKRSEK, VOL_SEZNAM/ZAPSANI..., ODEVZ_OBALKY, PL_HL_CELK`
+      `T4: chybí očekávané sloupce (mám: ${have}). Nutné: OBEC, OKRSEK, VOL_SEZNAM/ZAPSANI..., ODEVZ_OBAL(KY), PL_HL_CELK`
     );
   }
+
+  console.log(`[T4] Použité sloupce → OBEC=${OBEC}, OKRSEK=${OKR}, REG=${REG}, RET=${RET}, VAL=${VAL}, ISS=${ISS || "-"}`);
 
   return rows.map((r) => ({
     OBEC: cleanId(r[OBEC]),
@@ -162,6 +185,8 @@ function readT4p(csvPath) {
       `T4p: chybí očekávané sloupce (mám: ${have}). Nutné: OBEC, OKRSEK, KSTRANA/KOD_..., POC_HLASU/HLASY`
     );
   }
+
+  console.log(`[T4p] Použité sloupce → OBEC=${OBEC}, OKRSEK=${OKR}, PART=${PART}, VOTES=${VOTES}`);
 
   return rows.map((r) => ({
     OBEC: cleanId(r[OBEC]),
@@ -202,18 +227,29 @@ function readCNS(zipDir) {
 
 // ---------- GEOMETRIE / GeoJSON ----------
 function featureVal(props, candidates, def = null) {
-  const k = guessKey(props, candidates.map(canon));
-  if (!k) return def;
-  return asStr(props[k]);
+  // candidates přijdou v „přirozené“ podobě – převedu je na canon
+  const k = (function () {
+    const keys = Object.keys(props || {});
+    const canonMap = new Map(keys.map((kk) => [canon(kk), kk]));
+    for (const c of candidates.map(canon)) {
+      const hit = canonMap.get(c);
+      if (hit) return hit;
+    }
+    for (const [ck, orig] of canonMap.entries()) {
+      if (candidates.map(canon).some((c) => ck.includes(c))) return orig;
+    }
+    return null;
+  })();
+  return k ? asStr(props[k]) : def;
 }
 
 function filterPrecincts(geo, target) {
   const feats = (geo.features || []).filter((f) => {
     const p = f.properties || {};
-    const obec = featureVal(p, ["obec", "kodobec", "cisobec", "obec_kod"]);
+    const obec = featureVal(p, ["OBEC", "KOD_OBEC", "CIS_OBEC", "obec_kod"]);
     if (cleanId(obec) !== cleanId(target.obec)) return false;
     if (!target.momc) return true;
-    const momc = featureVal(p, ["momc", "kodmomc", "cismomc", "momc_kod"]);
+    const momc = featureVal(p, ["MOMC", "KOD_MOMC", "CIS_MOMC", "momc_kod"]);
     return cleanId(momc) === cleanId(target.momc);
   });
   return { ...geo, features: feats };
@@ -224,11 +260,13 @@ function okrSetFromGeo(geo) {
   for (const f of geo.features || []) {
     const p = f.properties || {};
     const ok = featureVal(p, [
-      "okrsek",
-      "cisokrsek",
-      "cislookrsku",
+      "OKRSEK",
+      "CIS_OKRSEK",
+      "CISLO_OKRSKU",
       "cislo_okrsku",
-      "okrsek_cislo"
+      "okrsek",
+      "okrsek_cislo",
+      "cislo_okrsku_text"
     ]);
     if (ok != null) s.add(cleanId(ok));
   }
@@ -335,7 +373,7 @@ function chooseT4T4pFromDir(dataDir) {
     okr: ["okrsek", "cisokrsek", "cislookrsku"],
     obec: ["obec", "kodobec", "cisobec"],
     reg: ["volseznam", "volicivseznamu", "zapsvol", "zapsanivolici"],
-    ret: ["odevzobalky", "odevzdaneobalky"],
+    ret: ["odevzobalky", "odevzdaneobalky", "odevzobal"],
     val: ["plhlcelk", "platnehlasy", "plhlcelkem", "platnychlasu"],
     part: ["kstrana", "kodstrany", "kodsubjektu", "kodstrana"],
     votes: ["pochlasu", "pocthlas", "hlasy", "pocethlasu"]
