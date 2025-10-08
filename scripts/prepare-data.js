@@ -113,7 +113,7 @@ function readT4(csvPath) {
   const K_OKR = ["okrsek", "cisokrsek", "cislookrsku"];
   const K_REG = ["volseznam", "volicivseznamu", "zapsvol", "zapsanivolici"];
   const K_ISS = ["vydobalky", "vydaneobalky"]; // info
-  const K_RET = ["odevzobalky", "odevzdaneobalky"];
+  const K_RET = ["odevzobalky", "odevzdaneobalky", "odevzobal"]; // <-- ZDE JE PROVEDENA OPRAVA
   const K_VALID = ["plhlcelk", "platnehlasy", "plhlcelkem", "platnychlasu"];
 
   const s = rows[0];
