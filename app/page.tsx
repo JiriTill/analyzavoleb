@@ -15,20 +15,20 @@ export default function Page() {
   const [ml, setMl] = useState<typeof import("maplibre-gl") | null>(null);
   const [year, setYear] = useState<Year>("2025");
   const [selectedOkrsek, setSelectedOkrsek] = useState<string | null>(null);
-  const [selectedFeatId, setSelectedFeatId] = useState<number | null>(null);
+  const selectedFeatIdRef = useRef<number | null>(null);
   const [results, setResults] = useState<Record<Year, ResultMap> | null>(null);
   const [geojsonUrl, setGeojsonUrl] = useState<string | null>(null);
+  const [aboutOpen, setAboutOpen] = useState(false);
 
   useEffect(() => { loadResultsAllYears().then(setResults).catch(() => setResults(null)); }, []);
   useEffect(() => { import("maplibre-gl").then((m) => setMl(m)); }, []);
 
   useEffect(() => {
-    if (!ml) return;
-    if (mapRef.current) return;
+    if (!ml || mapRef.current) return;
 
     const style = process.env.NEXT_PUBLIC_MAPTILER_KEY
       ? `https://api.maptiler.com/maps/streets/style.json?key=${process.env.NEXT_PUBLIC_MAPTILER_KEY}`
-      : "https://api.maptiler.com/maps/basic-v2/style.json?key=free"; // hezký fallback s ulicemi
+      : "https://demotiles.maplibre.org/style.json";
 
     const map = new ml.Map({ container: "map", style, center: [18.289, 49.834], zoom: 12 });
     map.addControl(new ml.NavigationControl({ visualizePitch: true }), "top-right");
@@ -41,14 +41,14 @@ export default function Page() {
   }, [ml]);
 
   useEffect(() => {
-    if (!mapRef.current) return;
-    refreshYearLayer(mapRef.current, year);
-    setSelectedOkrsek(null);
-    // clear selection style
-    if (selectedFeatId != null) {
-      mapRef.current.setFeatureState({ source: "precincts", id: selectedFeatId }, { selected: false });
-      setSelectedFeatId(null);
+    const map = mapRef.current; if (!map) return;
+    refreshYearLayer(map, year);
+    // zruš selekci mezi roky
+    if (selectedFeatIdRef.current != null) {
+      map.setFeatureState({ source: "precincts", id: selectedFeatIdRef.current }, { selected: false });
+      selectedFeatIdRef.current = null;
     }
+    setSelectedOkrsek(null);
   }, [year]);
 
   async function refreshYearLayer(map: maplibreglType.Map, y: Year) {
@@ -62,10 +62,7 @@ export default function Page() {
     const hoverId = "precinct-hover";
 
     const existing = map.getSource(srcId) as maplibreglType.GeoJSONSource | undefined;
-    if (existing) {
-      existing.setData(url);
-      return;
-    }
+    if (existing) { existing.setData(url); return; }
 
     map.addSource(srcId, { type: "geojson", data: url, generateId: true });
 
@@ -76,8 +73,8 @@ export default function Page() {
         "fill-opacity": [
           "case",
           ["boolean", ["feature-state", "selected"], false], 0.28,
-          ["boolean", ["feature-state", "hover"], false],    0.16,
-          0.08
+          ["boolean", ["feature-state", "hover"], false],    0.14,
+          0.06
         ]
       }
     });
@@ -92,7 +89,7 @@ export default function Page() {
         ],
         "line-width": [
           "case",
-          ["boolean", ["feature-state", "selected"], false], 2.5,
+          ["boolean", ["feature-state", "selected"], false], 2.6,
           1.2
         ]
       }
@@ -107,8 +104,7 @@ export default function Page() {
     let hoveredId: number | null = null;
     map.on("mousemove", fillId, (e) => {
       map.getCanvas().style.cursor = "pointer";
-      const f = e.features?.[0];
-      if (!f) return;
+      const f = e.features?.[0]; if (!f) return;
       if (hoveredId !== null) map.setFeatureState({ source: srcId, id: hoveredId }, { hover: false });
       hoveredId = f.id as number;
       map.setFeatureState({ source: srcId, id: hoveredId }, { hover: true });
@@ -124,15 +120,17 @@ export default function Page() {
       const okrId = f?.properties ? getOkrsekIdFromProps(f.properties) : null;
       if (!f || !okrId) return;
 
-      // zruš starou selection
-      if (selectedFeatId != null) map.setFeatureState({ source: srcId, id: selectedFeatId }, { selected: false });
-      // nastav novou
-      setSelectedFeatId(f.id as number);
-      map.setFeatureState({ source: srcId, id: f.id as number }, { selected: true });
+      // zruš předchozí výběr
+      if (selectedFeatIdRef.current != null) {
+        map.setFeatureState({ source: srcId, id: selectedFeatIdRef.current }, { selected: false });
+      }
+      // nastav nový
+      selectedFeatIdRef.current = f.id as number;
+      map.setFeatureState({ source: srcId, id: selectedFeatIdRef.current }, { selected: true });
       setSelectedOkrsek(String(okrId));
     });
 
-    // fit na extent po prvním načtení
+    // centrace na data
     const fitOnce = (ev: any) => {
       if (ev.sourceId !== srcId || !map.isSourceLoaded(srcId)) return;
       const data: any = (map.getSource(srcId) as any)?._data;
@@ -146,16 +144,16 @@ export default function Page() {
   }
 
   function getBbox(fc: any): [number, number, number, number] | null {
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    const push = (c: number[]) => { const [x,y]=c; if (x<minX) minX=x; if (y<minY) minY=y; if (x>maxX) maxX=x; if (y>maxY) maxY=y; };
-    try {
-      for (const f of fc.features || []) {
-        const g = f.geometry; if (!g) continue;
-        if (g.type === "Polygon") g.coordinates.flat(1).forEach(push);
-        else if (g.type === "MultiPolygon") g.coordinates.flat(2).forEach(push);
+    let minX=Infinity, minY=Infinity, maxX=-Infinity, maxY=-Infinity;
+    const push=(c:number[])=>{ const [x,y]=c; if(x<minX)minX=x; if(y<minY)minY=y; if(x>maxX)maxX=x; if(y>maxY)maxY=y; };
+    try{
+      for (const f of fc.features||[]){
+        const g=f.geometry; if(!g) continue;
+        if(g.type==="Polygon") g.coordinates.flat(1).forEach(push);
+        else if(g.type==="MultiPolygon") g.coordinates.flat(2).forEach(push);
       }
-      if (isFinite(minX)&&isFinite(minY)&&isFinite(maxX)&&isFinite(maxY)) return [minX,minY,maxX,maxY];
-    } catch {}
+      if(isFinite(minX)&&isFinite(minY)&&isFinite(maxX)&&isFinite(maxY)) return [minX,minY,maxX,maxY];
+    }catch{}
     return null;
   }
 
@@ -173,9 +171,28 @@ export default function Page() {
     <div className="flex h-screen w-screen">
       <div className="relative flex-1">
         <div id="map" className="h-full w-full" />
-        <div className="absolute left-3 top-3 z-10 rounded-md bg-white/90 px-3 py-2 shadow">
-          <div className="text-sm font-semibold">Analytický nástroj pro volební kampaň</div>
-          <a href="/o-projektu" className="text-xs underline">Zjisti více o projektu</a>
+
+        {/* Info/Projekt panel */}
+        <div className="absolute left-3 top-3 z-10">
+          <div className="rounded-md bg-white/95 px-3 py-2 shadow">
+            {!aboutOpen ? (
+              <>
+                <div className="text-sm font-semibold">Analytický nástroj pro volební kampaň</div>
+                <button className="text-xs underline" onClick={()=>setAboutOpen(true)}>Zjisti více o projektu</button>
+              </>
+            ) : (
+              <div className="w-[320px]">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="text-sm font-semibold">O projektu</div>
+                  <button aria-label="Zavřít" onClick={()=>setAboutOpen(false)}>✕</button>
+                </div>
+                <p className="mt-1 text-xs">
+                  Nástroj zobrazuje okrskové hranice a výsledky (2022, 2024, 2025) pro rychlou orientaci
+                  v kampani – kde je silná/slabá podpora a jak se vyvíjí účast. Autor: <strong>Jiří Till</strong>.
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -197,3 +214,4 @@ export default function Page() {
     </div>
   );
 }
+
