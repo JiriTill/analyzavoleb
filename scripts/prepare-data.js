@@ -112,9 +112,9 @@ function readT4(csvPath) {
   const K_OBEC = ["obec", "kodobec", "cisobec"];
   const K_OKR = ["okrsek", "cisokrsek", "cislookrsku"];
   const K_REG = ["volseznam", "volicivseznamu", "zapsvol", "zapsanivolici"];
-  const K_ISS = ["vydobalky", "vydaneobalky"];
+  const K_ISS = ["vydobalky", "vydaneobalky"]; // info
   const K_RET = ["odevzobalky", "odevzdaneobalky"];
-  const K_VALID = ["plhlcelk", "platnehlasy", "plhlcelkem"];
+  const K_VALID = ["plhlcelk", "platnehlasy", "plhlcelkem", "platnychlasu"];
 
   const s = rows[0];
   const OBEC = guessKey(s, K_OBEC);
@@ -135,7 +135,7 @@ function readT4(csvPath) {
     OBEC: cleanId(r[OBEC]),
     OKRSEK: cleanId(r[OKR]),
     registered: +asStr(r[REG]) || 0,
-    issued: ISS ? +asStr(r[ISS]) || 0 : 0, // jen pro informaci
+    issued: ISS ? +asStr(r[ISS]) || 0 : 0,
     returned: +asStr(r[RET]) || 0,
     valid: +asStr(r[VAL]) || 0
   }));
@@ -314,13 +314,93 @@ async function resolveKV2022() {
   };
 }
 
+// ---------- Helper: výběr T4/T4p z rozbaleného ZIPu ----------
+function chooseT4T4pFromDir(dataDir) {
+  const files = listFilesDeep(dataDir).filter((f) => f.toLowerCase().endsWith(".csv"));
+  if (!files.length) throw new Error("V data ZIPu nejsou žádné .csv soubory");
+
+  console.log(`[detekce] Nalezeno CSV:`);
+  files.forEach((f) => {
+    try {
+      const raw = fs.readFileSync(f, "utf8");
+      const rows = parseCsvSmart(raw);
+      const cols = rows && rows[0] ? Object.keys(rows[0]) : [];
+      console.log(` - ${path.basename(f)} :: [${cols.join(", ")}]`);
+    } catch (e) {
+      console.log(` - ${path.basename(f)} :: (nelze načíst: ${e.message})`);
+    }
+  });
+
+  const need = {
+    okr: ["okrsek", "cisokrsek", "cislookrsku"],
+    obec: ["obec", "kodobec", "cisobec"],
+    reg: ["volseznam", "volicivseznamu", "zapsvol", "zapsanivolici"],
+    ret: ["odevzobalky", "odevzdaneobalky"],
+    val: ["plhlcelk", "platnehlasy", "plhlcelkem", "platnychlasu"],
+    part: ["kstrana", "kodstrany", "kodsubjektu", "kodstrana"],
+    votes: ["pochlasu", "pocthlas", "hlasy", "pocethlasu"]
+  };
+
+  function scoreCols(cols) {
+    const cset = new Set(cols.map(canon));
+    const has = (arr) => arr.some((a) => cset.has(a));
+    const t4Score =
+      (has(need.obec) ? 1 : 0) +
+      (has(need.okr) ? 1 : 0) +
+      (has(need.reg) ? 1 : 0) +
+      (has(need.ret) ? 1 : 0) +
+      (has(need.val) ? 1 : 0);
+    const t4pScore =
+      (has(need.obec) ? 1 : 0) +
+      (has(need.okr) ? 1 : 0) +
+      (has(need.part) ? 1 : 0) +
+      (has(need.votes) ? 1 : 0);
+    return { t4Score, t4pScore };
+  }
+
+  let bestT4 = { file: null, score: -1 };
+  let bestT4p = { file: null, score: -1 };
+
+  for (const f of files) {
+    let cols = [];
+    try {
+      const rows = parseCsvSmart(fs.readFileSync(f, "utf8"));
+      cols = rows && rows[0] ? Object.keys(rows[0]) : [];
+    } catch {}
+    const { t4Score, t4pScore } = scoreCols(cols);
+    if (t4Score > bestT4.score) bestT4 = { file: f, score: t4Score };
+    if (t4pScore > bestT4p.score) bestT4p = { file: f, score: t4pScore };
+  }
+
+  // prahy (t4: aspoň obec+okrsek+ret+val = 4; t4p: obec+okrsek+part+votes = 4)
+  if (bestT4.score < 4 || bestT4p.score < 4) {
+    console.warn(
+      `[detekce] Slabé skóre T4/T4p (T4=${bestT4.score}, T4p=${bestT4p.score}). Zkouším fallback podle názvů.`
+    );
+    const byNameT4 = files.find((f) =>
+      /(t4(?!p)|souhrn|okrsek[^/]*souhrn|okrskovy_souhrn)/i.test(path.basename(f))
+    );
+    const byNameT4p = files.find((f) =>
+      /(t4p|hlasy|kstrana|stran|subjekt)/i.test(path.basename(f))
+    );
+    if (byNameT4 && bestT4.score < 4) bestT4 = { file: byNameT4, score: 4 };
+    if (byNameT4p && bestT4p.score < 4) bestT4p = { file: byNameT4p, score: 4 };
+  }
+
+  console.log(
+    `[detekce] Vybráno: T4="${bestT4.file ? path.basename(bestT4.file) : "nenalezeno"}" (score ${bestT4.score}), ` +
+      `T4p="${bestT4p.file ? path.basename(bestT4p.file) : "nenalezeno"}" (score ${bestT4p.score}).`
+  );
+
+  return { t4File: bestT4.file, t4pFile: bestT4p.file };
+}
+
 // ---------- Sestavení výstupů ----------
 function buildResults(t4, t4p, cns, okrSet, allowedNames /* array|null */) {
   // map okrsek -> souhrn
   const t4Map = new Map();
   for (const r of t4) {
     if (!okrSet.has(r.OKRSEK)) continue;
-    // klíč = okrsek (bez nul)
     t4Map.set(r.OKRSEK, r);
   }
 
@@ -388,24 +468,11 @@ async function processElection(tag, links) {
   const dataDir = unzipToDir(new URL(dataZipUri).pathname, path.join(tmp, "data"));
   const cnsDir = unzipToDir(new URL(cnsZipUri).pathname, path.join(tmp, "cns"));
 
-  // najdi T4/T4p podle hlaviček
-  const files = listFilesDeep(dataDir).filter((f) => f.toLowerCase().endsWith(".csv"));
-  let t4File = null;
-  let t4pFile = null;
-  for (const f of files) {
-    const rows = parseCsvSmart(fs.readFileSync(f, "utf8"));
-    if (!rows || !rows[0]) continue;
-    const colsC = Object.keys(rows[0]).map(canon);
-    const hasOkr = colsC.includes("okrsek") || colsC.includes("cisokrsek") || colsC.includes("cislookrsku");
-    const hasObec = colsC.includes("obec") || colsC.includes("kodobec") || colsC.includes("cisobec");
-    const hasVotes = colsC.includes("pochlasu") || colsC.includes("pocthlas") || colsC.includes("hlasy") || colsC.includes("pocethlasu");
-    const hasReturned = colsC.includes("odevzobalky") || colsC.includes("odevzdaneobalky");
-    const hasValid = colsC.includes("plhlcelk") || colsC.includes("platnehlasy");
-    if (hasOkr && hasObec && hasVotes && !t4pFile) t4pFile = f;
-    if (hasOkr && hasObec && hasReturned && hasValid && !t4File) t4File = f;
-  }
+  // vyber T4/T4p
+  const { t4File, t4pFile } = chooseT4T4pFromDir(dataDir);
   if (!t4File || !t4pFile) throw new Error(`${tag}: nenašel jsem T4/T4p v CSV (zkontroluj obsah ZIPu)`);
 
+  // načti data
   const t4 = readT4(t4File);
   const t4p = readT4p(t4pFile);
   const cns = readCNS(cnsDir);
@@ -427,7 +494,9 @@ async function processElection(tag, links) {
   for (const target of TARGETS) {
     let geoFiltered = filterPrecincts(fullGeo, target);
     if (!geoFiltered.features || geoFiltered.features.length === 0) {
-      console.warn(`[${tag}] Varování: po filtrování zbylo 0 polygonů pro ${target.obec}:${target.momc}. Použiju celý GeoJSON (dočasný fallback).`);
+      console.warn(
+        `[${tag}] Varování: po filtrování zbylo 0 polygonů pro ${target.obec}:${target.momc}. Použiju celý GeoJSON (dočasný fallback).`
+      );
       geoFiltered = fullGeo;
     }
     const okrSet = okrSetFromGeo(geoFiltered);
