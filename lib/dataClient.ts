@@ -33,13 +33,29 @@ return `/data/precincts_${tag}_${AREA_SUFFIX}.geojson`;
 
 
 export function getOkrsekIdFromProps(props: Record<string, any>): string | null {
-const keys = Object.keys(props || {});
-const candidates = ["cislo_okrsku", "OKRSEK", "CIS_OKRSEK", "CISLO_OKRSKU", "okrsek", "okrsek_id"];
-for (const c of candidates) {
-const k = keys.find(k => k.toLowerCase() === c.toLowerCase());
-if (k && props[k] != null) return String(props[k]);
+  if (!props) return null;
+
+  // 1) preferuj klíče, které jasně obsahují "okrsek"
+  const preferKeys = [
+    "cislo_okrsku","cis_okrsek","okrsek","okrsek_cislo","cis_ok",
+    "CISLO_OKRSKU","CIS_OKRSEK","OKRSEK"
+  ];
+  for (const k of Object.keys(props)) {
+    const kl = k.toLowerCase();
+    if (preferKeys.some(p => kl === p.toLowerCase() || kl.includes("okrsek"))) {
+      const v = String(props[k] ?? "").trim();
+      const digits = (v.match(/\d+/g) || []).join("");
+      if (!digits) continue;
+      if (digits.length === 4) return digits;             // typický formát (8001…)
+      if (digits.length <= 5) return digits.replace(/^0+/, "");
+    }
+  }
+
+  // 2) fallback: projdi všechny hodnoty a najdi 3–5místné číslo
+  for (const v of Object.values(props)) {
+    const m = String(v ?? "").match(/\b\d{3,5}\b/);
+    if (m) return String(parseInt(m[0], 10));
+  }
+  return null;
 }
-// fallback: pick first numeric-looking property
-const numKey = keys.find(k => /^\d+$/.test(String(props[k])));
-return numKey ? String(props[numKey]) : null;
-}
+
