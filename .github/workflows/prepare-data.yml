@@ -31,6 +31,7 @@ jobs:
         env:
           TARGETS: ${{ secrets.TARGETS }}
           OKRSKY_2025_GEOJSON_URL: ${{ secrets.OKRSKY_2025_GEOJSON_URL }}
+          TS_NODE_TRANSPILE_ONLY: "1"
         run: npx ts-node scripts/prepare-data.ts
 
       - name: Commit generated /public/data
