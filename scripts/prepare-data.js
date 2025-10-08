@@ -162,12 +162,13 @@ function extractHref(html, labelRegex) {
 }
 
 async function resolvePSP2025() {
-  const html = await fetchHtml("https://www.volby.cz/opendata/ps2025/ps2025_opendata.htm");
-  const dataZip = extractHref(html, /CSV\s*\(CSVW\)\s*.*Okrskov|CSV\s*\(CSVW\)/i);
-  const cnsZip = extractHref(html, /Číselníky.*CSV/i);
-  const okrskyUrl = process.env.OKRSKY_2025_GEOJSON_URL || null; // Secret v GH
-  if (!dataZip || !cnsZip) throw new Error("PSP2025: nenašel jsem CSV zipy");
-  if (!okrskyUrl) console.warn("[PSP2025] Chybí OKRSKY_2025_GEOJSON_URL");
+  // Fix: ČSÚ změnilo HTML, proto odkazy doplňujeme ručně
+  const dataZip = "https://www.volby.cz/opendata/ps2025/opendata_ps2025_okrs_csvw.zip";
+  const cnsZip = "https://www.volby.cz/opendata/ps2025/opendata_ps2025_ciselniky_csv.zip";
+  const okrskyUrl = process.env.OKRSKY_2025_GEOJSON_URL || null;
+  if (!okrskyUrl) {
+    console.warn("[PSP2025] Chybí OKRSKY_2025_GEOJSON_URL (GeoJSON hranice okrsků)");
+  }
   return { dataZip, cnsZip, okrskyUrl };
 }
 async function resolveKZ2024() {
