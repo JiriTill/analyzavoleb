@@ -1,4 +1,4 @@
-# MOaP Elections Map (Ostrava – Moravská Ostrava a Přívoz)
+# Elections Map (Ostrava – Moravská Ostrava a Přívoz)
 
 
 Interaktivní mapa okrsků s trendy (2022, 2024, 2025), vybraná strana a odhad „potenciálu“ (nevoliči × podíl strany). Postaveno na Next.js + MapLibre + Recharts. Deploy na Vercel.
