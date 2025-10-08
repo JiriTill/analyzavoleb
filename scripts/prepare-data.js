@@ -233,19 +233,28 @@ function featureVal(props, candidates, def = null) {
 function filterPrecincts(geo, target) {
   const feats = (geo.features || []).filter((f) => {
     const p = f.properties || {};
-    const obec = featureVal(p, ["OBEC", "KOD_OBEC", "CIS_OBEC", "obec_kod"]);
+    const obec = featureVal(p, ["OBEC", "KOD_OBEC", "CIS_OBEC", "obec_kod", "obec_kód"]);
     if (obec !== target.obec) return false;
     if (!target.momc) return true;
-    const momc = featureVal(p, ["MOMC", "KOD_MOMC", "CIS_MOMC", "kod_momc"]);
+    const momc = featureVal(p, ["MOMC", "KOD_MOMC", "CIS_MOMC", "kod_momc", "momc_kod"]);
     return momc === target.momc;
   });
   return { ...geo, features: feats };
 }
+
 function okrSetFromGeo(geo) {
   const s = new Set();
   for (const f of geo.features || []) {
     const p = f.properties || {};
-    const ok = featureVal(p, ["OKRSEK", "CIS_OKRSEK", "CISLO_OKRSKU", "okrsek", "cislo_okrsku"]);
+    const ok = featureVal(p, [
+      "OKRSEK",
+      "CIS_OKRSEK",
+      "CISLO_OKRSKU",
+      "cislo_okrsku",
+      "okrsek",
+      "okrsek_cislo",
+      "cislo_okrsku_text"
+    ]);
     if (ok) s.add(String(ok));
   }
   return s;
@@ -322,7 +331,11 @@ async function processElection(tag, links) {
   const manualMandates = loadManualMandates(tag);
 
   for (const target of TARGETS) {
-    const geoFiltered = filterPrecincts(fullGeo, target);
+      let geoFiltered = filterPrecincts(fullGeo, target);
+      if (!geoFiltered.features || geoFiltered.features.length === 0) {
+        console.warn(`[${tag}] Varování: po filtrování zbylo 0 polygonů pro ${target.obec}:${target.momc}. Zkusím fallback bez filtru.`);
+        geoFiltered = fullGeo; // dočasný fallback, ať vrstva bude vidět
+      }
     const okrSet = okrSetFromGeo(geoFiltered);
     const okrResults = buildResults(t4, t4p, cns, okrSet, manualMandates);
 
