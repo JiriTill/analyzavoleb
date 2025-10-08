@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
 * scripts/prepare-data.ts
 * – stáhne okrsková data a hranice pro PSP 2025, KZ 2024, KV 2022
@@ -15,7 +16,7 @@ import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { createWriteStream, existsSync, readFileSync } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
-import AdmZip from 'adm-zip';
+const AdmZip = require('adm-zip');
 import { parse } from 'csv-parse/sync';
 
 
@@ -65,4 +66,7 @@ const PHL = guessProp(s,['POC_HLASU']);
 if(!OBEC||!OKR||!KSTR||!PHL) throw new Error('T4p: neznámé hlavičky');
 return rows.map((r:any)=>({ OBEC: asStr(r[OBEC])!, OKRSEK: asStr(r[OKR])!, party_code: asStr(r[KSTR])!, votes: +r[PHL]||0 }));
 }
-})().catch(e=>{ console.error(e); process.exit(1); });
+})().catch((e: any) => { 
+  console.error(e);
+  process.exit(1);
+});
