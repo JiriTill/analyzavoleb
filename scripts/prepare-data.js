@@ -162,12 +162,13 @@ function extractHref(html, labelRegex) {
 }
 
 async function resolvePSP2025() {
-  // Fix: ČSÚ změnilo HTML, proto odkazy doplňujeme ručně
-  const dataZip = "https://www.volby.cz/opendata/ps2025/opendata_ps2025_okrs_csvw.zip";
-  const cnsZip = "https://www.volby.cz/opendata/ps2025/opendata_ps2025_ciselniky_csv.zip";
-  const okrskyUrl = process.env.OKRSKY_2025_GEOJSON_URL || null;
+  // Odkazy dle oficiální stránky ČSÚ (CSV/CSVW zipy) – stav k 05.10.2025
+  const dataZip = "https://www.volby.cz/opendata/ps2025/PS2025data20251005_csv.zip";
+  const cnsZip  = "https://www.volby.cz/opendata/ps2025/PS2025ciselniky20251005_csv.zip";
+  const okrskyUrl = process.env.OKRSKY_2025_GEOJSON_URL || null; // to necháme ze secreta
+
   if (!okrskyUrl) {
-    console.warn("[PSP2025] Chybí OKRSKY_2025_GEOJSON_URL (GeoJSON hranice okrsků)");
+    console.warn("[PSP2025] Chybí OKRSKY_2025_GEOJSON_URL (GeoJSON hranice okrsků).");
   }
   return { dataZip, cnsZip, okrskyUrl };
 }
