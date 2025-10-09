@@ -5,36 +5,94 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+# aby git-auto-commit mohl zapisovat
 permissions:
   contents: write
+
+concurrency:
+  group: prepare-data
+  cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+    steps:
+      # --- 1) Checkout včetně LFS (KLÍČOVÉ!) ---
+      - name: Checkout repository (with LFS)
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          fetch-depth: 0
+
+      # --- 2) Volitelný výpis pro debug ---
+      - name: Show manual ZIPs
+        run: |
+          echo "Manual dir content:"
+          ls -al manual || true
+          echo
+          echo "LFS files tracked:"
+          git lfs ls-files || true
+
+      # --- 3) Ochrana: pokud by se do běhu dostaly LFS pointery místo ZIPů, failneme srozumitelně ---
+      - name: Verify manual ZIPs are real (not LFS pointers)
+        run: |
+          set -e
+          shopt -s nullglob
+          bad=""
+          for z in manual/*.zip; do
+            # malé nebo pointerové soubory nechceme
+            size=$(stat -c%s "$z")
+            if [ "$size" -lt 256 ]; then
+              echo "::error file=$z::File is too small ($size B) – most likely a Git LFS pointer."
+              bad=1
+              continue
+            fi
+            head -c 200 "$z" | grep -q "git-lfs.github.com/spec/v1" && {
+              echo "::error file=$z::This is a Git LFS pointer. Make sure checkout uses 'lfs: true'."
+              bad=1
+            }
+          done
+          if [ -n "$bad" ]; then
+            echo "At least one ZIP in /manual looks like an LFS pointer. Aborting."
+            exit 1
+          fi
+
+      # --- 4) Node + cachování npm ---
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
 
-      - run: npm install
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm i
+          fi
 
+      # --- 5) Kontrola secrets s jasnou chybou ---
       - name: Check secrets
         run: |
-          echo "TARGETS=${{ secrets.TARGETS && 'present' || 'missing' }}"
-          echo "OKRSKY_2025_GEOJSON_URL=${{ secrets.OKRSKY_2025_GEOJSON_URL && 'present' || 'missing' }}"
+          [ -n "${{ secrets.TARGETS }}" ] || { echo "::error::Missing secret TARGETS"; exit 1; }
+          [ -n "${{ secrets.OKRSKY_2025_GEOJSON_URL }}" ] || { echo "::error::Missing secret OKRSKY_2025_GEOJSON_URL"; exit 1; }
+          echo "TARGETS=present"
+          echo "OKRSKY_2025_GEOJSON_URL=present"
 
-      - name: Run prepare-data (download + build)
+      # --- 6) Build výsledků ---
+      - name: Run prepare-data (build JSON outputs)
         env:
           TARGETS: ${{ secrets.TARGETS }}
           OKRSKY_2025_GEOJSON_URL: ${{ secrets.OKRSKY_2025_GEOJSON_URL }}
         run: node scripts/prepare-data.js
 
+      # --- 7) Commit vygenerovaných souborů ---
       - name: Commit generated /public/data
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "chore(data): update public/data"
           file_pattern: |
             public/data/**
-            manual/**
+
