@@ -1,0 +1,484 @@
+{
+  "@context": ["http://www.w3.org/ns/csvw",{"@language": "cs"}],
+  "url": "kvhl.csv",
+  "dc:description": "Data z hlasovacího lístku a druhé strany tiskopisu T/3 zápisu komise v podobě pro prezentaci dat (kompletní struktura)", 
+  "tableSchema": { 
+    "columns": [{
+      "name": "DATUMVOLEB",
+      "titles": "DATUMVOLEB",
+      "dc:description": "Datum konání voleb (formát RRRRMMDD) - první den voleb",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "ID_OKRSKY",
+      "titles": "ID_OKRSKY",
+      "dc:description": "Odkaz na identifikaci okrsku (FK)",
+      "required": false,
+      "datatype": "number"
+    },{
+      "name": "KRAJ",
+      "titles": "KRAJ",
+      "dc:description": "Kód kraje podle CNUMNUTS, ve kterém se nachází volební okrsek",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "OKRES",
+      "titles": "OKRES",
+      "dc:description": "Kód okresu dle CNUMNUTS",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "OBEC",
+      "titles": "OBEC",
+      "dc:description": "Kód obce dle COCO",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "OKRSEK",
+      "titles": "OKRSEK",
+      "dc:description": "Číslo okrsku v rámci obce",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "TYPZASTUP",
+      "titles": "TYPZASTUP",
+      "dc:description": "Kód typu zastupitelstva (dle KVTYPZAS)",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "POR_STR_HL",
+      "titles": "POR_STR_HL",
+      "dc:description": "Pořadí strany na hlasovacím lístku",
+      "required": false,
+      "datatype": "number"
+    },{
+      "name": "POC_HLASU",
+      "titles": "POC_HLASU",
+      "dc:description": "Počet hlasů pro tuto stranu",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_01",
+      "titles": "HLASY_01",
+      "dc:description": "Počet hlasů pro kandidáta č. 1",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_02",
+      "titles": "HLASY_02",
+      "dc:description": "Počet hlasů pro kandidáta č. 2",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_03",
+      "titles": "HLASY_03",
+      "dc:description": "Počet hlasů pro kandidáta č. 3",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_04",
+      "titles": "HLASY_04",
+      "dc:description": "Počet hlasů pro kandidáta č. 4",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_05",
+      "titles": "HLASY_05",
+      "dc:description": "Počet hlasů pro kandidáta č. 5",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_06",
+      "titles": "HLASY_06",
+      "dc:description": "Počet hlasů pro kandidáta č. 6",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_07",
+      "titles": "HLASY_07",
+      "dc:description": "Počet hlasů pro kandidáta č. 7",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_08",
+      "titles": "HLASY_08",
+      "dc:description": "Počet hlasů pro kandidáta č. 8",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_09",
+      "titles": "HLASY_09",
+      "dc:description": "Počet hlasů pro kandidáta č. 9",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_10",
+      "titles": "HLASY_10",
+      "dc:description": "Počet hlasů pro kandidáta č. 10",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_11",
+      "titles": "HLASY_11",
+      "dc:description": "Počet hlasů pro kandidáta č. 11",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_12",
+      "titles": "HLASY_12",
+      "dc:description": "Počet hlasů pro kandidáta č. 12",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_13",
+      "titles": "HLASY_13",
+      "dc:description": "Počet hlasů pro kandidáta č. 13",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_14",
+      "titles": "HLASY_14",
+      "dc:description": "Počet hlasů pro kandidáta č. 14",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_15",
+      "titles": "HLASY_15",
+      "dc:description": "Počet hlasů pro kandidáta č. 15",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_16",
+      "titles": "HLASY_16",
+      "dc:description": "Počet hlasů pro kandidáta č. 16",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_17",
+      "titles": "HLASY_17",
+      "dc:description": "Počet hlasů pro kandidáta č. 17",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_18",
+      "titles": "HLASY_18",
+      "dc:description": "Počet hlasů pro kandidáta č. 18",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_19",
+      "titles": "HLASY_19",
+      "dc:description": "Počet hlasů pro kandidáta č. 19",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_20",
+      "titles": "HLASY_20",
+      "dc:description": "Počet hlasů pro kandidáta č. 20",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_21",
+      "titles": "HLASY_21",
+      "dc:description": "Počet hlasů pro kandidáta č. 21",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_22",
+      "titles": "HLASY_22",
+      "dc:description": "Počet hlasů pro kandidáta č. 22",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_23",
+      "titles": "HLASY_23",
+      "dc:description": "Počet hlasů pro kandidáta č. 23",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_24",
+      "titles": "HLASY_24",
+      "dc:description": "Počet hlasů pro kandidáta č. 24",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_25",
+      "titles": "HLASY_25",
+      "dc:description": "Počet hlasů pro kandidáta č. 25",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_26",
+      "titles": "HLASY_26",
+      "dc:description": "Počet hlasů pro kandidáta č. 26",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_27",
+      "titles": "HLASY_27",
+      "dc:description": "Počet hlasů pro kandidáta č. 27",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_28",
+      "titles": "HLASY_28",
+      "dc:description": "Počet hlasů pro kandidáta č. 28",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_29",
+      "titles": "HLASY_29",
+      "dc:description": "Počet hlasů pro kandidáta č. 29",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_30",
+      "titles": "HLASY_30",
+      "dc:description": "Počet hlasů pro kandidáta č. 30",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_31",
+      "titles": "HLASY_31",
+      "dc:description": "Počet hlasů pro kandidáta č. 31",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_32",
+      "titles": "HLASY_32",
+      "dc:description": "Počet hlasů pro kandidáta č. 32",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_33",
+      "titles": "HLASY_33",
+      "dc:description": "Počet hlasů pro kandidáta č. 33",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_34",
+      "titles": "HLASY_34",
+      "dc:description": "Počet hlasů pro kandidáta č. 34",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_35",
+      "titles": "HLASY_35",
+      "dc:description": "Počet hlasů pro kandidáta č. 35",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_36",
+      "titles": "HLASY_36",
+      "dc:description": "Počet hlasů pro kandidáta č. 36",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_37",
+      "titles": "HLASY_37",
+      "dc:description": "Počet hlasů pro kandidáta č. 37",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_38",
+      "titles": "HLASY_38",
+      "dc:description": "Počet hlasů pro kandidáta č. 38",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_39",
+      "titles": "HLASY_39",
+      "dc:description": "Počet hlasů pro kandidáta č. 39",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_40",
+      "titles": "HLASY_40",
+      "dc:description": "Počet hlasů pro kandidáta č. 40",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_41",
+      "titles": "HLASY_41",
+      "dc:description": "Počet hlasů pro kandidáta č. 41",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_42",
+      "titles": "HLASY_42",
+      "dc:description": "Počet hlasů pro kandidáta č. 42",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_43",
+      "titles": "HLASY_43",
+      "dc:description": "Počet hlasů pro kandidáta č. 43",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_44",
+      "titles": "HLASY_44",
+      "dc:description": "Počet hlasů pro kandidáta č. 44",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_45",
+      "titles": "HLASY_45",
+      "dc:description": "Počet hlasů pro kandidáta č. 45",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_46",
+      "titles": "HLASY_46",
+      "dc:description": "Počet hlasů pro kandidáta č. 46",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_47",
+      "titles": "HLASY_47",
+      "dc:description": "Počet hlasů pro kandidáta č. 47",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_48",
+      "titles": "HLASY_48",
+      "dc:description": "Počet hlasů pro kandidáta č. 48",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_49",
+      "titles": "HLASY_49",
+      "dc:description": "Počet hlasů pro kandidáta č. 49",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_50",
+      "titles": "HLASY_50",
+      "dc:description": "Počet hlasů pro kandidáta č. 50",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_51",
+      "titles": "HLASY_51",
+      "dc:description": "Počet hlasů pro kandidáta č. 51",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_52",
+      "titles": "HLASY_52",
+      "dc:description": "Počet hlasů pro kandidáta č. 52",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_53",
+      "titles": "HLASY_53",
+      "dc:description": "Počet hlasů pro kandidáta č. 53",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_54",
+      "titles": "HLASY_54",
+      "dc:description": "Počet hlasů pro kandidáta č. 54",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_55",
+      "titles": "HLASY_55",
+      "dc:description": "Počet hlasů pro kandidáta č. 55",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_56",
+      "titles": "HLASY_56",
+      "dc:description": "Počet hlasů pro kandidáta č. 56",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_57",
+      "titles": "HLASY_57",
+      "dc:description": "Počet hlasů pro kandidáta č. 57",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_58",
+      "titles": "HLASY_58",
+      "dc:description": "Počet hlasů pro kandidáta č. 58",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_59",
+      "titles": "HLASY_59",
+      "dc:description": "Počet hlasů pro kandidáta č. 59",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_60",
+      "titles": "HLASY_60",
+      "dc:description": "Počet hlasů pro kandidáta č. 60",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_61",
+      "titles": "HLASY_61",
+      "dc:description": "Počet hlasů pro kandidáta č. 61",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_62",
+      "titles": "HLASY_62",
+      "dc:description": "Počet hlasů pro kandidáta č. 62",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_63",
+      "titles": "HLASY_63",
+      "dc:description": "Počet hlasů pro kandidáta č. 63",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_64",
+      "titles": "HLASY_64",
+      "dc:description": "Počet hlasů pro kandidáta č. 64",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_65",
+      "titles": "HLASY_65",
+      "dc:description": "Počet hlasů pro kandidáta č. 65",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_66",
+      "titles": "HLASY_66",
+      "dc:description": "Počet hlasů pro kandidáta č. 66",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_67",
+      "titles": "HLASY_67",
+      "dc:description": "Počet hlasů pro kandidáta č. 67",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_68",
+      "titles": "HLASY_68",
+      "dc:description": "Počet hlasů pro kandidáta č. 68",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_69",
+      "titles": "HLASY_69",
+      "dc:description": "Počet hlasů pro kandidáta č. 69",
+      "required": true,
+      "datatype": "number"
+    },{
+      "name": "HLASY_70",
+      "titles": "HLASY_70",
+      "dc:description": "Počet hlasů pro kandidáta č. 70",
+      "required": true,
+      "datatype": "number"
+    }
+    ],
+    "primaryKey": ["DATUMVOLEB","OKRES","OBEC","OKRSEK","TYPZASTUP","POR_STR_HL"]
+  }
+}
