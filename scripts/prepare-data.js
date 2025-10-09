@@ -243,6 +243,22 @@ function featureVal(props, candidates, def = null) {
   return k ? asStr(props[k]) : def;
 }
 
+// dopočti lokální číslo okrsku pro join (např. 8001 → 1, 8045 → 45)
+function computeLocalOkrsekId(props) {
+  // 1) když už GeoJSON má lokální číslo, použij ho
+  const local1 = featureVal(props, ["OKRSEK", "CIS_OKRSEK", "okrsek", "okrsek_cislo"]);
+  if (local1 != null) return cleanId(local1);
+
+  // 2) když má „globální“ kód (např. 8001), vezmeme poslední 3 číslice
+  const code = featureVal(props, ["CISLO_OKRSKU", "cislo_okrsku", "cislo_okrsku_text"]);
+  if (code != null && /^\d+$/.test(String(code))) {
+    const n = parseInt(String(code), 10);
+    const loc = n % 1000; // 8001 -> 1, 8045 -> 45 atd.
+    return String(loc);
+  }
+  return null;
+}
+
 function filterPrecincts(geo, target) {
   const feats = (geo.features || []).filter((f) => {
     const p = f.properties || {};
@@ -259,15 +275,7 @@ function okrSetFromGeo(geo) {
   const s = new Set();
   for (const f of geo.features || []) {
     const p = f.properties || {};
-    const ok = featureVal(p, [
-      "OKRSEK",
-      "CIS_OKRSEK",
-      "CISLO_OKRSKU",
-      "cislo_okrsku",
-      "okrsek",
-      "okrsek_cislo",
-      "cislo_okrsku_text"
-    ]);
+    const ok = computeLocalOkrsekId(p);
     if (ok != null) s.add(cleanId(ok));
   }
   return s;
@@ -515,7 +523,7 @@ async function processElection(tag, links) {
   const t4p = readT4p(t4pFile);
   const cns = readCNS(cnsDir);
 
-  // GeoJSON načíst + filtrovat
+  // GeoJSON načíst
   const fullGeo = JSON.parse(fs.readFileSync(new URL(okrGeoUri), "utf8"));
 
   // případné lokální omezení na vybrané subjekty (mandates_<tag>.json)
@@ -537,12 +545,28 @@ async function processElection(tag, links) {
       );
       geoFiltered = fullGeo;
     }
-    const okrSet = okrSetFromGeo(geoFiltered);
+
+    // doplň do vlastností políčka pro join / label
+    const geoWithLocal = {
+      ...geoFiltered,
+      features: (geoFiltered.features || []).map((f) => {
+        const p = { ...(f.properties || {}) };
+        const label =
+          featureVal(p, ["CISLO_OKRSKU", "cislo_okrsku", "cislo_okrsku_text"]) ||
+          featureVal(p, ["OKRSEK", "CIS_OKRSEK", "okrsek"]) ||
+          null;
+        p.okrsek_label = label ? String(label) : null;
+        p.okrsek_local = computeLocalOkrsekId(p);
+        return { ...f, properties: p };
+      })
+    };
+
+    const okrSet = okrSetFromGeo(geoWithLocal);
     const okrResults = buildResults(t4, t4p, cns, okrSet, manualMandates);
 
     await fsp.mkdir(OUT_DIR, { recursive: true });
     const suffix = target.momc ? `${target.obec}_${target.momc}` : `${target.obec}`;
-    fs.writeFileSync(path.join(OUT_DIR, `precincts_${tag}_${suffix}.geojson`), JSON.stringify(geoFiltered));
+    fs.writeFileSync(path.join(OUT_DIR, `precincts_${tag}_${suffix}.geojson`), JSON.stringify(geoWithLocal));
     fs.writeFileSync(
       path.join(OUT_DIR, `results_${tag}_${suffix}.json`),
       JSON.stringify({
@@ -596,3 +620,4 @@ async function processElection(tag, links) {
   console.error(e);
   process.exit(1);
 });
+
