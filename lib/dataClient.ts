@@ -33,14 +33,24 @@ export async function loadPrecinctsGeoJSON(tag: "psp2025"|"kz2024"|"kv2022"): Pr
   return `/data/precincts_psp2025_${AREA_SUFFIX}.geojson`;
 }
 
+/**
+ * Získá unikátní ID okrsku z vlastností GeoJSON feature,
+ * které slouží jako klíč pro spojení s daty z results_*.json.
+ */
 export function getOkrsekIdFromProps(props: Record<string, any>): string | null {
+  // 1. Prioritně kontrolujeme normalizovaný klíč, který vkládá prepare-data.js
+  if (props?.okrsek_local != null) return String(props.okrsek_local);
+  
+  // 2. Fallback na surové klíče (méně spolehlivé)
   const keys = Object.keys(props || {});
   const candidates = ["cislo_okrsku","OKRSEK","CIS_OKRSEK","CISLO_OKRSKU","okrsek","okrsek_id"];
+  
   for (const c of candidates) {
     const k = keys.find(k => k.toLowerCase() === c.toLowerCase());
     if (k && props[k] != null) return String(props[k]);
   }
-  // nouzově: první numerický property
+  
+  // 3. Nouzově: první numerický property (pokud GeoJSON má jen čísla)
   const numKey = keys.find(k => /^\d+$/.test(String(props[k])));
   return numKey ? String(props[numKey]) : null;
 }
