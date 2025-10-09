@@ -7,21 +7,24 @@ import { loadResultsAllYears, loadPrecinctsGeoJSON, getOkrsekIdFromProps } from 
 import { YearTabs } from "@/components/YearTabs";
 import { SidePanel } from "@/components/SidePanel";
 
+function buildSelectionFilter(id: string|null) {
+  if (!id) return ["==", ["get", "OKRSEK"], "__none__"];
+  const keys = ["OKRSEK","CIS_OKRSEK","CISLO_OKRSKU","cislo_okrsku","okrsek","okrsek_cislo","cislo_okrsku_text"];
+  return ["any", ...keys.map(k => ["==", ["to-string", ["get", k]], id])];
+}
+
 export default function Page() {
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [year, setYear] = useState<Year>("2025");
   const [selectedOkrsek, setSelectedOkrsek] = useState<string | null>(null);
-  const [selectedFid, setSelectedFid] = useState<number | string | undefined>(undefined);
   const [results, setResults] = useState<Record<Year, ResultMap> | null>(null);
   const [geojsonUrl, setGeojsonUrl] = useState<string | null>(null);
   const [showAbout, setShowAbout] = useState(false);
 
-  // výsledky všech roků (kvůli trendům)
   useEffect(() => {
     loadResultsAllYears().then(setResults).catch(() => setResults(null));
   }, []);
 
-  // init mapy
   useEffect(() => {
     if (mapRef.current) return;
 
@@ -38,38 +41,31 @@ export default function Page() {
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
     mapRef.current = map;
 
-    map.on("load", () => {
+    map.once("load", () => {
       refreshYearLayer(map, year);
-
       map.on("click", "precinct-fill", (e) => {
         const f = e.features?.[0];
         const id = f?.properties ? getOkrsekIdFromProps(f.properties) : null;
-        if (id) setSelectedOkrsek(String(id));
-
-        // zvýraznění přes feature-state (používáme generateId:true -> f.id existuje)
-        if (typeof selectedFid !== "undefined") {
-          map.setFeatureState({ source: "precincts", id: selectedFid }, { selected: false });
-        }
-        if (typeof f?.id !== "undefined") {
-          map.setFeatureState({ source: "precincts", id: f.id }, { selected: true });
-          setSelectedFid(f.id);
+        if (id) {
+          setSelectedOkrsek(String(id));
+          map.setFilter("precinct-selected", buildSelectionFilter(String(id)));
+          map.setFilter("precinct-selected-outline", buildSelectionFilter(String(id)));
         }
       });
-
       map.on("mousemove", "precinct-fill", () => (map.getCanvas().style.cursor = "pointer"));
       map.on("mouseleave", "precinct-fill", () => (map.getCanvas().style.cursor = ""));
     });
-  }, [selectedFid]);
+  }, []);
 
-  // přepnutí roku
   useEffect(() => {
-    if (!mapRef.current) return;
-    refreshYearLayer(mapRef.current, year);
-    setSelectedOkrsek(null);
-    if (typeof selectedFid !== "undefined") {
-      mapRef.current.setFeatureState({ source: "precincts", id: selectedFid }, { selected: false });
-      setSelectedFid(undefined);
+    const map = mapRef.current;
+    if (!map) return;
+    if (!map.isStyleLoaded()) {
+      map.once("load", () => refreshYearLayer(map, year));
+    } else {
+      refreshYearLayer(map, year);
     }
+    setSelectedOkrsek(null);
   }, [year]);
 
   async function refreshYearLayer(map: maplibregl.Map, y: Year) {
@@ -80,47 +76,50 @@ export default function Page() {
     const srcId = "precincts";
     const fillId = "precinct-fill";
     const lineId = "precinct-outline";
+    const selFillId = "precinct-selected";
+    const selLineId = "precinct-selected-outline";
 
     const existing = map.getSource(srcId) as maplibregl.GeoJSONSource | undefined;
     if (existing) {
       (existing as any).setData(url);
+      // reset výběr
+      map.setFilter(selFillId, buildSelectionFilter(null) as any);
+      map.setFilter(selLineId, buildSelectionFilter(null) as any);
       return;
     }
-    map.addSource(srcId, { type: "geojson", data: url, generateId: true } as any);
 
+    map.addSource(srcId, { type: "geojson", data: url } as any);
+
+    // základní vrstva
     map.addLayer({
       id: fillId,
       type: "fill",
       source: srcId,
-      paint: {
-        "fill-color": "#1d4ed8",
-        "fill-opacity": [
-          "case",
-          ["boolean", ["feature-state", "selected"], false],
-          0.28, // vybraný
-          0.08  // základní průhledná výplň
-        ]
-      }
+      paint: { "fill-color": "#1d4ed8", "fill-opacity": 0.08 }
     });
 
     map.addLayer({
       id: lineId,
       type: "line",
       source: srcId,
-      paint: {
-        "line-color": [
-          "case",
-          ["boolean", ["feature-state", "selected"], false],
-          "#0b3bbd",
-          "#1d4ed8"
-        ],
-        "line-width": [
-          "case",
-          ["boolean", ["feature-state", "selected"], false],
-          2.2,
-          1.2
-        ]
-      }
+      paint: { "line-color": "#1d4ed8", "line-width": 1.2 }
+    });
+
+    // vybraný okrsek
+    map.addLayer({
+      id: selFillId,
+      type: "fill",
+      source: srcId,
+      filter: buildSelectionFilter(null) as any,
+      paint: { "fill-color": "#0b3bbd", "fill-opacity": 0.28 }
+    });
+
+    map.addLayer({
+      id: selLineId,
+      type: "line",
+      source: srcId,
+      filter: buildSelectionFilter(null) as any,
+      paint: { "line-color": "#0b3bbd", "line-width": 2.2 }
     });
   }
 
@@ -136,7 +135,6 @@ export default function Page() {
 
   return (
     <div className="flex h-screen w-screen">
-      {/* malý box vlevo nahoře */}
       <div className="absolute z-10 m-2">
         <div className="rounded bg-white/90 shadow px-2 py-1 text-sm">
           <div className="font-medium">Analytický nástroj pro volební kampaň</div>
@@ -158,7 +156,7 @@ export default function Page() {
         {!results ? (
           <p>Načítám data… Pokud se nic nenačte, zkontroluj, že Actions vygeneroval <code>/public/data/results_*.json</code>.</p>
         ) : !geojsonUrl ? (
-          <p>Chybí GeoJSON pro daný rok (PSP 2025 vrstvu). Zkontroluj <code>OKRSKY_2025_GEOJSON_URL</code>.</p>
+          <p>Chybí GeoJSON (PSP 2025). Zkontroluj <code>OKRSKY_2025_GEOJSON_URL</code>.</p>
         ) : !selectedOkrsek ? (
           <p>👈 Klikni na okrsek v mapě pro zobrazení detailů a trendů (2022 → 2024 → 2025).</p>
         ) : (
