@@ -1,47 +1,46 @@
+// lib/dataClient.ts
 import { Year, yearToTag, ResultMap } from "@/lib/types";
 
-// suffix pro MOaP (Ostrava: 554821, MOaP: 545911)
-const AREA_SUFFIX = "554821_545911";
+const AREA_SUFFIX = "554821_545911"; // Ostrava + MOaP
 
-export async function loadResults(y: Year): Promise<ResultMap | null> {
-  const tag = yearToTag[y];
-  const url = `/data/results_${tag}_${AREA_SUFFIX}.json`;
+async function fetchJson<T>(url: string): Promise<T | null> {
   try {
     const res = await fetch(url, { cache: "no-store" });
     if (!res.ok) return null;
-    return await res.json();
-  } catch {
+    return (await res.json()) as T;
+  } catch (_) {
     return null;
   }
 }
 
+export async function loadResults(y: Year): Promise<ResultMap | null> {
+  const tag = yearToTag[y];
+  const url = `/data/results_${tag}_${AREA_SUFFIX}.json`;
+  return await fetchJson<ResultMap>(url);
+}
+
 export async function loadResultsAllYears(): Promise<Record<Year, ResultMap>> {
   const out: Partial<Record<Year, ResultMap>> = {};
-  for (const y of ["2025", "2024", "2022"] as Year[]) {
+  for (const y of ["2025","2024","2022"] as Year[]) {
     const r = await loadResults(y);
     if (r) out[y] = r;
   }
   return out as Record<Year, ResultMap>;
 }
 
-export async function loadPrecinctsGeoJSON(tag: "psp2025" | "kz2024" | "kv2022"): Promise<string> {
-  return `/data/precincts_${tag}_${AREA_SUFFIX}.geojson`;
+export async function loadPrecinctsGeoJSON(tag: "psp2025"|"kz2024"|"kv2022"): Promise<string> {
+  // používáme jeden a tentýž GeoJSON (PSP 2025) – soubor leží v /public/data, generuje se jinak
+  return `/data/precincts_psp2025_${AREA_SUFFIX}.geojson`;
 }
 
-// DŮLEŽITÉ: bereme okrsek z okrsek_local (join klíč v results_*.json)
 export function getOkrsekIdFromProps(props: Record<string, any>): string | null {
-  const prefer = ["okrsek_local", "OKRSEK", "CIS_OKRSEK", "CISLO_OKRSKU", "cislo_okrsku"];
-  for (const k of Object.keys(props || {})) {
-    const kl = k.toLowerCase();
-    if (prefer.some(p => p.toLowerCase() === kl)) {
-      const v = props[k];
-      if (v != null && String(v).trim() !== "") return String(v).trim().replace(/^0+/, "");
-    }
+  const keys = Object.keys(props || {});
+  const candidates = ["cislo_okrsku","OKRSEK","CIS_OKRSEK","CISLO_OKRSKU","okrsek","okrsek_id"];
+  for (const c of candidates) {
+    const k = keys.find(k => k.toLowerCase() === c.toLowerCase());
+    if (k && props[k] != null) return String(props[k]);
   }
-  // fallback: první numericky vypadající hodnota
-  for (const k of Object.keys(props || {})) {
-    const v = String(props[k] ?? "");
-    if (/^\d+$/.test(v)) return v.replace(/^0+/, "");
-  }
-  return null;
+  // nouzově: první numerický property
+  const numKey = keys.find(k => /^\d+$/.test(String(props[k])));
+  return numKey ? String(props[numKey]) : null;
 }
