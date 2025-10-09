@@ -1,7 +1,7 @@
 // scripts/prepare-data.js
 // Připraví okrsková data (PSP 2025, KZ 2024, KV 2022) do /public/data.
 // Preferuje zdroje v /manual, jinak stáhne z volby.cz (GeoJSON 2025 z OKRSKY_2025_GEOJSON_URL).
-// Node 20+ (global fetch).
+// Node 20+ (s globálním fetch, případně by se musel nahradit za 'node-fetch' pro starší verze)
 
 const fs = require("fs");
 const fsp = require("fs/promises");
@@ -11,6 +11,8 @@ const { pipeline } = require("stream/promises");
 const { createWriteStream } = require("fs");
 const AdmZip = require("adm-zip");
 const { parse } = require("csv-parse/sync");
+// Používáme globální 'fetch' předpokládaný v Node 20+. Pro starší verzi by bylo potřeba:
+// const fetch = require('node-fetch');
 
 // ---------- Konfigurace ----------
 const OUT_DIR = path.join("public", "data");
@@ -28,6 +30,11 @@ const TARGETS = (process.env.TARGETS || "554821:545911")
 
 // ---------- Pomocné funkce ----------
 async function HTTP(url) {
+  // Pro jistotu kontrola globálního fetch (i když je deklarován Node 20+)
+  if (typeof fetch === 'undefined') {
+    throw new Error("Globální 'fetch' není dostupný. Zkontrolujte verzi Node.js (potřeba 20+)");
+  }
+
   const res = await fetch(url);
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
   return res;
@@ -57,6 +64,16 @@ function listFilesDeep(dir) {
   walk(dir);
   return out;
 }
+
+// Převod file:// URI na lokální cestu (spolehlivější než jen pathname, řeší i Windows)
+function uriToPath(uri) {
+  if (uri.startsWith('file://')) {
+    // Odstranění 'file://', ošetření cesty (na Windows by mohlo být /C:/...)
+    return path.resolve(uri.substring(7));
+  }
+  return uri; // Není file URI
+}
+
 
 const asStr = (x) => (x == null ? null : String(x).trim());
 const cleanId = (x) => (x == null ? null : String(x).trim().replace(/^0+/, ""));
@@ -373,7 +390,8 @@ function chooseT4T4pFromDir(dataDir) {
       const cols = rows && rows[0] ? Object.keys(rows[0]) : [];
       console.log(` - ${path.basename(f)} :: [${cols.join(", ")}]`);
     } catch (e) {
-      console.log(` - ${path.basename(f)} :: (nelze načíst: ${e.message})`);
+      // Použití console.error místo log pro případ chyby
+      console.error(` - ${path.basename(f)} :: (nelze načíst: ${e.message})`);
     }
   });
 
@@ -389,7 +407,7 @@ function chooseT4T4pFromDir(dataDir) {
 
   function scoreCols(cols) {
     const cset = new Set(cols.map(canon));
-    const has = (arr) => arr.some((a) => cset.has(a));
+    const has = (arr) => arr.some((a) => arr.map(canon).some(c => cset.has(c))); // Opraveno mapování na canon
     const t4Score =
       (has(need.obec) ? 1 : 0) +
       (has(need.okr) ? 1 : 0) +
@@ -486,8 +504,11 @@ function buildResults(t4, t4p, cns, okrSet, allowedNames /* array|null */) {
 async function processElection(tag, links) {
   const tmp = await fsp.mkdtemp(path.join(os.tmpdir(), `${tag}-`));
   const dl = async (maybeLocal, url, name) => {
+    // 1. Zpracování file:// URL
     if (maybeLocal && maybeLocal.startsWith("file://")) return maybeLocal;
+    // 2. Zpracování lokální cesty (ne file://)
     if (maybeLocal && fs.existsSync(maybeLocal)) return `file://${path.resolve(maybeLocal)}`;
+    // 3. Stažení z URL
     if (!url) return null;
     const dest = path.join(tmp, name);
     await downloadToFile(url, dest);
@@ -511,8 +532,8 @@ async function processElection(tag, links) {
   }
 
   // unzip
-  const dataDir = unzipToDir(new URL(dataZipUri).pathname, path.join(tmp, "data"));
-  const cnsDir = unzipToDir(new URL(cnsZipUri).pathname, path.join(tmp, "cns"));
+  const dataDir = unzipToDir(uriToPath(dataZipUri), path.join(tmp, "data"));
+  const cnsDir = unzipToDir(uriToPath(cnsZipUri), path.join(tmp, "cns"));
 
   // vyber T4/T4p
   const { t4File, t4pFile } = chooseT4T4pFromDir(dataDir);
@@ -524,7 +545,7 @@ async function processElection(tag, links) {
   const cns = readCNS(cnsDir);
 
   // GeoJSON načíst
-  const fullGeo = JSON.parse(fs.readFileSync(new URL(okrGeoUri), "utf8"));
+  const fullGeo = JSON.parse(fs.readFileSync(uriToPath(okrGeoUri), "utf8"));
 
   // případné lokální omezení na vybrané subjekty (mandates_<tag>.json)
   const manFile = path.join("manual", `mandates_${tag}.json`);
@@ -533,17 +554,22 @@ async function processElection(tag, links) {
     try {
       const j = JSON.parse(fs.readFileSync(manFile, "utf8"));
       if (Array.isArray(j.parties)) manualMandates = j.parties.map(String);
-    } catch {}
+    } catch (e) {
+      console.error(`[${tag}] Varování: Chyba při čtení/parsování ${manFile}: ${e.message}`);
+    }
   }
 
   // pro každý TARGET (OBEC[:MOMC]) připravit výstupy
   for (const target of TARGETS) {
     let geoFiltered = filterPrecincts(fullGeo, target);
+    const suffix = target.momc ? `${target.obec}_${target.momc}` : `${target.obec}`;
+
     if (!geoFiltered.features || geoFiltered.features.length === 0) {
       console.warn(
-        `[${tag}] Varování: po filtrování zbylo 0 polygonů pro ${target.obec}:${target.momc}. Použiju celý GeoJSON (dočasný fallback).`
+        `[${tag}] Varování: po filtrování zbylo 0 polygonů pro ${suffix}. Přeskočeno.`
       );
-      geoFiltered = fullGeo;
+      // Není potřeba fall back, pokud neexistují polygony, přeskočíme
+      continue;
     }
 
     // doplň do vlastností políčka pro join / label
@@ -565,7 +591,7 @@ async function processElection(tag, links) {
     const okrResults = buildResults(t4, t4p, cns, okrSet, manualMandates);
 
     await fsp.mkdir(OUT_DIR, { recursive: true });
-    const suffix = target.momc ? `${target.obec}_${target.momc}` : `${target.obec}`;
+    
     fs.writeFileSync(path.join(OUT_DIR, `precincts_${tag}_${suffix}.geojson`), JSON.stringify(geoWithLocal));
     fs.writeFileSync(
       path.join(OUT_DIR, `results_${tag}_${suffix}.json`),
@@ -600,7 +626,7 @@ async function processElection(tag, links) {
       await processElection("kz2024", kz);
     }
   } catch (e) {
-    console.warn("[KZ2024] přeskočeno:", e.message || e);
+    console.warn(`[KZ2024] přeskočeno: ${e.message || e}`);
   }
 
   // KV 2022 – dtto
@@ -612,7 +638,7 @@ async function processElection(tag, links) {
       await processElection("kv2022", kv);
     }
   } catch (e) {
-    console.warn("[KV2022] přeskočeno:", e.message || e);
+    console.warn(`[KV2022] přeskočeno: ${e.message || e}`);
   }
 
   console.log(`✔ Hotovo. Výstupy v ${OUT_DIR}`);
@@ -620,4 +646,3 @@ async function processElection(tag, links) {
   console.error(e);
   process.exit(1);
 });
-
