@@ -1,0 +1,22 @@
+{
+  "@context": ["http://www.w3.org/ns/csvw",{"@language": "cs"}],
+  "url": "cvs_slozeni.csv",
+  "dc:description": "Složení stran pro KV_CVS", 
+  "tableSchema": { 
+    "columns": [{
+      "name": "VSTRANA",
+      "titles": "VSTRANA",
+      "dc:description": "Kód volební strany",
+      "required": false,
+      "datatype": "number"
+    },{
+      "name": "NSTRANA",
+      "titles": "NSTRANA",
+      "dc:description": "Kód navrhující strany",
+      "required": true,
+      "datatype": "number"
+    }
+    ],
+    "primaryKey": ["VSTRANA","NSTRANA"]
+  }
+}
