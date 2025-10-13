@@ -9,50 +9,43 @@ permissions:
   contents: write
 
 concurrency:
-  group: prepare-data-psp2025
+  group: prepare-data
   cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository (no LFS needed)
+      - name: Checkout repo
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Debug secrets presence
+      - name: Show manual/psp2025
         run: |
-          echo "TARGETS_PSP2025=${{ secrets.TARGETS_PSP2025 && 'present' || 'MISSING' }}"
-          echo "OKRSKY_2025_GEOJSON_URL=${{ secrets.OKRSKY_2025_GEOJSON_URL && 'present' || 'MISSING' }}"
+          ls -al manual || true
+          ls -al manual/psp2025 || true
 
-      - name: Verify CSV inputs exist
+      - name: Assert CSV inputs exist
         run: |
-          set -e
-          for f in manual/psp2025/pst4.csv manual/psp2025/pst4p.csv manual/psp2025/cns.csv; do
-            [ -f "$f" ] || { echo "::error file=$f::Missing file"; exit 1; }
-            sz=$(stat -c%s "$f")
-            [ "$sz" -gt 1000 ] || { echo "::error file=$f::File too small ($sz B)"; exit 1; }
-          done
-          echo "All CSV inputs present."
+          test -f manual/psp2025/pst4.csv   || { echo "::error file=manual/psp2025/pst4.csv::Missing"; exit 1; }
+          test -f manual/psp2025/pst4p.csv  || { echo "::error file=manual/psp2025/pst4p.csv::Missing"; exit 1; }
+          # parties je volitelné, ale doporučené (pro názvy stran)
 
-      - name: Setup Node.js
+      - name: Setup Node 20
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
 
-      - name: Install dependencies
+      - name: Install deps
         run: |
-          if [ -f package-lock.json ]; then npm ci; else npm i; fi
+          npm i
 
-      - name: Generate PSP 2025 results JSON
+      - name: Generate results JSON (PSP 2025)
         env:
-          TARGETS_PSP2025: ${{ secrets.TARGETS_PSP2025 }}
+          TARGETS: ${{ secrets.TARGETS }} # např. 554821:545911
         run: node scripts/generate-results-psp2025.js
 
-      - name: Commit generated /public/data
+      - name: Commit public/data/*
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "chore(data): update PSP 2025 public/data"
+          commit_message: "chore(data): update public/data (PSP 2025)"
           file_pattern: public/data/**
