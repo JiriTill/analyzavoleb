@@ -1,39 +1,17 @@
-// Univerzální generátor výsledků PSP 2025 z CSV (pst4, pst4p) + číselník stran (cns)
-// Vstupní soubory:  manual/psp2025/pst4.csv, manual/psp2025/pst4p.csv, manual/psp2025/cns.csv
-// Výstupy: public/data/results_psp2025_<suffix>.json  (suffix si zvolíš přes mapování níže)
-//
-// Jak spustit (příklad):
-//   TARGETS_PSP2025="554821_545911=7204:500011" node scripts/generate-results-psp2025.js
-//
-// Lze dát více cílů oddělených čárkou, např.:
-//   TARGETS_PSP2025="554821_545911=7204:500011,XXXXX_YYYYY=AAAA:BBBB"
-//
-// Kde vlevo je <suffix> = to, co očekává tvoje appka v názvu souboru,
-// a vpravo je "OKRES:OBEC" tak, jak se to vyskytuje v CSV z ČSÚ.
-//
-// Pozn.: Skript autodetekuje ; , \t a ignoruje BOM.
-//
-// ------------------------------------------------------------
+// scripts/generate-results-psp2025.js
+// Čte manuální CSV (pst4, pst4p, cns) a generuje results_psp2025_<suffix>.json do public/data.
 
-const fs = require("fs");
-const fsp = require("fs/promises");
-const path = require("path");
-const { parse } = require("csv-parse/sync");
+const fs = require('fs');
+const fsp = require('fs/promises');
+const path = require('path');
+const { parse } = require('csv-parse/sync');
 
-const ROOT_IN = process.env.PSP2025_DIR || path.join("manual", "psp2025");
-const OUT_DIR = path.join("public", "data");
-const TMAP = process.env.TARGETS_PSP2025 || ""; // např. "554821_545911=7204:500011"
+const IN_DIR = path.join('manual', 'psp2025');
+const OUT_DIR = path.join('public', 'data');
 
-function ensureFile(p) {
-  if (!fs.existsSync(p)) {
-    throw new Error(`Chybí soubor: ${p}`);
-  }
-  const sz = fs.statSync(p).size;
-  if (sz < 10) throw new Error(`Soubor je podezřele malý: ${p}`);
-}
-
+/** Auto-delim (tab, ;, ,) + columns:true */
 function parseCsvSmart(raw) {
-  const tryDelims = [";", ",", "\t"];
+  const tryDelims = ['\t', ';', ','];
   for (const d of tryDelims) {
     try {
       const rows = parse(raw, {
@@ -43,219 +21,136 @@ function parseCsvSmart(raw) {
         skip_empty_lines: true,
         relax_column_count: true,
         relax_quotes: true,
+        trim: true
       });
       if (rows && rows.length) return rows;
     } catch {}
   }
-  throw new Error("CSV nejde rozumně parsovat (zkontroluj delimiter).");
+  throw new Error('CSV parse failed with all delimiters');
 }
 
 const asStr = (x) => (x == null ? null : String(x).trim());
-const asNum = (x) => {
-  if (x == null) return 0;
-  const s = String(x).replace(",", ".").trim();
-  const n = Number(s);
+
+function reqCol(row, names, label) {
+  for (const n of names) if (n in row) return n;
+  throw new Error(`Missing expected column (${label}): any of [${names.join(', ')}]`);
+}
+
+function num(x) {
+  if (x == null || x === '') return 0;
+  const n = +String(x).replace(',', '.');
   return Number.isFinite(n) ? n : 0;
-};
-
-function loadCsv(p) {
-  ensureFile(p);
-  const raw = fs.readFileSync(p, "utf8");
-  return parseCsvSmart(raw);
 }
 
-// --- načtení číselníku stran ---
-function loadCns() {
-  const cnsPath = path.join(ROOT_IN, "cns.csv");
-  const rows = loadCsv(cnsPath);
-  // typicky sloupce: NSTRANA / NAZEV_STRN (nebo NAZEV_STRANA)
-  const sample = rows[0] || {};
-  const KSTR = Object.keys(sample).find((k) => /^N?STRANA$/i.test(k)) || "NSTRANA";
-  const NAME =
-    Object.keys(sample).find((k) => /NAZEV/i.test(k)) ||
-    Object.keys(sample).find((k) => /NAME/i.test(k));
-
-  if (!KSTR || !NAME) {
-    throw new Error(`cns.csv: nenašel jsem sloupce s kódem a názvem strany (mám hlavičku: ${Object.keys(sample).join(", ")})`);
-  }
-  const map = new Map();
-  for (const r of rows) {
-    const code = asStr(r[KSTR]);
-    const name = asStr(r[NAME]);
-    if (code && name) map.set(code, name);
-  }
-  return map;
-}
-
-// --- načtení T4 (účasti) ---
-function loadT4() {
-  const p = path.join(ROOT_IN, "pst4.csv");
-  const rows = loadCsv(p);
-  // očekáváme sloupce: OKRES, OBEC, OKRSEK, VOL_SEZNAM, ODEVZ_OBAL (případně ODEVZ_OBALKY), PL_HL_CELK
-  const s = rows[0] || {};
-  const col = (names) => Object.keys(s).find((k) => names.some((n) => k.toLowerCase() === n.toLowerCase()));
-
-  const OKRES = col(["OKRES"]);
-  const OBEC = col(["OBEC"]);
-  const OKRSEK = col(["OKRSEK", "CISLO_OKRSKU"]);
-  const VOL = col(["VOL_SEZNAM", "VOLICI_V_SEZNAMU", "VOLICI_SEZNAM"]);
-  const ODEVZ = col(["ODEVZ_OBAL", "ODEVZ_OBALKY", "ODEVZ_OBALY", "ODEVZ_OBALK"]);
-  const PL = col(["PL_HL_CELK", "PLATNE_HLASY_CELK"]);
-
-  const required = { OKRES, OBEC, OKRSEK, VOL, ODEVZ, PL };
-  for (const [name, val] of Object.entries(required)) {
-    if (!val) throw new Error(`pst4.csv: chybí očekávaný sloupec: ${name}`);
-  }
-
-  return rows.map((r) => ({
-    okres: asStr(r[OKRES]),
-    obec: asStr(r[OBEC]),
-    okrsek: asStr(r[OKRSEK]),
-    vol_seznam: asNum(r[VOL]),
-    odevz_obalky: asNum(r[ODEVZ]),
-    platne_hlasy: asNum(r[PL]),
-  }));
-}
-
-// --- načtení T4p (hlasy stran) ---
-function loadT4p() {
-  const p = path.join(ROOT_IN, "pst4p.csv");
-  const rows = loadCsv(p);
-  // očekáváme: OKRES, OBEC, OKRSEK, KSTRANA, POC_HLASU
-  const s = rows[0] || {};
-  const col = (names) => Object.keys(s).find((k) => names.some((n) => k.toLowerCase() === n.toLowerCase()));
-
-  const OKRES = col(["OKRES"]);
-  const OBEC = col(["OBEC"]);
-  const OKRSEK = col(["OKRSEK"]);
-  const KSTR = col(["KSTRANA", "KOD_STRANY", "NSTRANA"]);
-  const HLAS = col(["POC_HLASU", "HLASY", "HLASY_CELK"]);
-
-  const required = { OKRES, OBEC, OKRSEK, KSTR, HLAS };
-  for (const [name, val] of Object.entries(required)) {
-    if (!val) throw new Error(`pst4p.csv: chybí očekávaný sloupec: ${name}`);
-  }
-
-  return rows.map((r) => ({
-    okres: asStr(r[OKRES]),
-    obec: asStr(r[OBEC]),
-    okrsek: asStr(r[OKRSEK]),
-    kstrana: asStr(r[KSTR]),
-    hlasy: asNum(r[HLAS]),
-  }));
-}
-
-// --- parsování TARGETS mapy ---
-// formát: "suffixA=OKRES:OBEC,suffixB=AAA:BBB"
-function parseTargetsMap(raw) {
+// TARGETS_PSP2025 = "554821_545911=7204:500011,..."  (suffix = obec_kod:momc_kod → okres:obec)
+function parseTargets(env) {
+  const s = process.env.TARGETS_PSP2025 || env || '';
+  if (!s) throw new Error('Secret TARGETS_PSP2025 is empty. Expected e.g. 554821_545911=7204:500011');
   const out = [];
-  for (const part of (raw || "").split(",").map((x) => x.trim()).filter(Boolean)) {
-    const [suffix, pair] = part.split("=");
-    if (!suffix || !pair) continue;
-    const [okres, obec] = pair.split(":");
-    out.push({ suffix, okres: (okres || "").trim(), obec: (obec || "").trim() });
+  for (const part of s.split(',').map(x => x.trim()).filter(Boolean)) {
+    const [suffix, rhs] = part.split('=');
+    if (!suffix || !rhs) throw new Error(`Bad TARGETS_PSP2025 item: "${part}"`);
+    const [okres, obec] = rhs.split(':');
+    if (!okres || !obec) throw new Error(`Bad okres:obec mapping in "${part}"`);
+    out.push({ suffix, okres: String(okres), obec: String(obec) });
   }
   return out;
 }
 
-function round2(x) {
-  return Math.round(x * 100) / 100;
-}
+(async function main() {
+  // 1) Načíst CSV
+  const pst4 = parseCsvSmart(fs.readFileSync(path.join(IN_DIR, 'pst4.csv'), 'utf8'));
+  const pst4p = parseCsvSmart(fs.readFileSync(path.join(IN_DIR, 'pst4p.csv'), 'utf8'));
+  const cns = parseCsvSmart(fs.readFileSync(path.join(IN_DIR, 'cns.csv'), 'utf8'));
 
-async function main() {
-  await fsp.mkdir(OUT_DIR, { recursive: true });
+  // 2) Najít názvy/klíče sloupců
+  const sample4 = pst4[0];
+  const COL_OKRES  = reqCol(sample4, ['OKRES', 'KOD_OKRES', 'CIS_OKRES'], 'OKRES');
+  const COL_OBEC   = reqCol(sample4, ['OBEC', 'KOD_OBEC', 'CIS_OBEC'], 'OBEC');
+  const COL_OKRSEK = reqCol(sample4, ['OKRSEK', 'CIS_OKRSEK', 'CISLO_OKRSKU'], 'OKRSEK');
 
-  const cns = loadCns();      // Map(code -> name)
-  const t4 = loadT4();        // účast per okrsek
-  const t4p = loadT4p();      // hlasy stran per okrsek
+  const COL_REG = reqCol(sample4, ['VOL_SEZNAM', 'VOLICI_V_SEZNAMU'], 'registered');
+  const COL_SUB = reqCol(sample4, ['ODEVZ_OBAL', 'ODEVZ_OBALKY', 'ODEVZDANE_OBALKY'], 'submitted envelopes');
+  const COL_VAL = reqCol(sample4, ['PL_HL_CELK', 'PLATNE_HLASY'], 'valid');
 
-  const targets = parseTargetsMap(TMAP);
-  if (!targets.length) {
-    console.error(`Nebyl zadán TARGETS_PSP2025 (např.: TARGETS_PSP2025="554821_545911=7204:500011").`);
-    process.exit(1);
+  const sample4p = pst4p[0];
+  const COL_OKRES_P = reqCol(sample4p, ['OKRES', 'KOD_OKRES', 'CIS_OKRES'], 'OKRES (T4p)');
+  const COL_OBEC_P  = reqCol(sample4p, ['OBEC', 'KOD_OBEC', 'CIS_OBEC'], 'OBEC (T4p)');
+  const COL_OKR_P   = reqCol(sample4p, ['OKRSEK', 'CIS_OKRSEK', 'CISLO_OKRSKU'], 'OKRSEK (T4p)');
+  const COL_KSTR    = reqCol(sample4p, ['KSTRANA', 'KOD_STRANY', 'KOD_SUBJEKTU', 'NSTRANA'], 'KSTRANA');
+  const COL_HLASU   = reqCol(sample4p, ['POC_HLASU', 'HLASY'], 'POC_HLASU');
+
+  // Číselník stran → kód → jméno (preferuj zkratku, pokud existuje)
+  const cnsCode = reqCol(cns[0], ['NSTRANA', 'KSTRANA', 'KOD_STRANY'], 'CNS code');
+  const cnsName = reqCol(cns[0], ['ZKRATKAN8', 'ZKRATKAN30', 'NAZEV_STRN', 'NAZEV_STRANA'], 'CNS name');
+  const PARTY_NAME = {};
+  for (const r of cns) {
+    const code = asStr(r[cnsCode]);
+    const name = asStr(r[cnsName]);
+    if (code) PARTY_NAME[code] = name || code;
   }
 
-  for (const target of targets) {
-    const { suffix, okres, obec } = target;
-    // Filtrování dat na okres+obec
-    const t4_f = t4.filter((r) => r.okres === okres && r.obec === obec);
-    const t4p_f = t4p.filter((r) => r.okres === okres && r.obec === obec);
+  // 3) Vygenerovat výstupy pro všechny suffixy z TARGETS_PSP2025
+  await fsp.mkdir(OUT_DIR, { recursive: true });
+  const targets = parseTargets();
 
-    if (!t4_f.length) {
-      console.warn(`[${suffix}] Varování: nenašel jsem žádné řádky v pst4.csv pro OKRES=${okres}, OBEC=${obec}.`);
-    }
-    if (!t4p_f.length) {
-      console.warn(`[${suffix}] Varování: nenašel jsem žádné řádky v pst4p.csv pro OKRES=${okres}, OBEC=${obec}.`);
-    }
+  for (const t of targets) {
+    const { okres, obec, suffix } = t;
 
-    // Index účasti podle okrsku
-    const t4ByOkr = new Map();
-    for (const r of t4_f) {
-      t4ByOkr.set(r.okrsek, r);
-    }
-
-    // Skládání hlasů stran per okrsek
-    const partiesByOkr = new Map(); // okrsek -> Map(partyName -> votes)
-    for (const r of t4p_f) {
-      const okr = r.okrsek;
-      const code = r.kstrana;
-      const name = cns.get(code) || code;
-      const m = partiesByOkr.get(okr) || new Map();
-      m.set(name, (m.get(name) || 0) + r.hlasy);
-      partiesByOkr.set(okr, m);
+    // index T4: okrsek → agregáty
+    const t4Map = new Map();
+    for (const row of pst4) {
+      if (asStr(row[COL_OKRES]) !== okres) continue;
+      if (asStr(row[COL_OBEC])  !== obec)  continue;
+      const okr = asStr(row[COL_OKRSEK]);
+      if (!okr) continue;
+      t4Map.set(okr, {
+        registered: num(row[COL_REG]),
+        submitted:  num(row[COL_SUB]),
+        valid:      num(row[COL_VAL]),
+      });
     }
 
-    // Výstupní struktura
-    const okrskyOut = {};
-    for (const [okr, rec] of t4ByOkr.entries()) {
-      const voters = rec.vol_seznam || 0;
-      const odevz = rec.odevz_obalky || 0;
-      const valid = rec.platne_hlasy || 0;
-      const ucast = voters ? round2((odevz / voters) * 100) : 0;
+    // index T4p: okrsek → [{ code, name, votes }]
+    const partiesBy = {};
+    for (const row of pst4p) {
+      if (asStr(row[COL_OKRES_P]) !== okres) continue;
+      if (asStr(row[COL_OBEC_P])  !== obec)  continue;
+      const okr = asStr(row[COL_OKR_P]); if (!okr) continue;
+      const code = asStr(row[COL_KSTR]); const votes = num(row[COL_HLASU]);
+      const name = PARTY_NAME[code] || code;
+      (partiesBy[okr] ||= []).push({ code, name, votes });
+    }
 
-      const parts = Array.from((partiesByOkr.get(okr) || new Map()).entries())
-        .map(([name, votes]) => ({ name, votes }))
-        .sort((a, b) => b.votes - a.votes);
-
-      // Top 6 s podíly (z platných hlasů)
-      const top6 = parts.slice(0, 6).map((p) => ({
-        name: p.name,
-        votes: p.votes,
-        share: valid ? round2((p.votes / valid) * 100) : 0,
-      }));
-
-      // „plochá“ mapa stran: { "ANO 2025": 123, ... }
-      const partiesDict = {};
-      for (const p of parts) partiesDict[p.name] = p.votes;
-
-      okrskyOut[okr] = {
-        registered: voters,
-        ballots_in: odevz,
-        valid: valid,
-        turnout_pct: ucast,
-        parties: partiesDict,
-        top6,
+    // Sestavit finální mapu
+    const out = {};
+    for (const [okr, agg] of t4Map.entries()) {
+      const parties = (partiesBy[okr] || []).sort((a,b)=>b.votes-a.votes);
+      const turnout_pct = agg.registered ? +(100 * (agg.submitted / agg.registered)).toFixed(2) : 0;
+      out[okr] = {
+        registered: agg.registered,
+        envelopes_submitted: agg.submitted,
+        valid: agg.valid,
+        turnout_pct,
+        parties
       };
     }
 
-    const out = {
+    const payload = {
       meta: {
-        election: "psp2025",
-        filter: { okres, obec },
+        election: 'psp2025',
+        target: { suffix, okres, obec },
         generated: new Date().toISOString(),
-        source: "CSV: pst4, pst4p, cns",
+        source: 'volby.cz CSV (pst4, pst4p, cns)'
       },
-      okrsky: okrskyOut,
+      okrsky: out
     };
 
-    const outName = `results_psp2025_${suffix}.json`;
-    const outPath = path.join(OUT_DIR, outName);
-    fs.writeFileSync(outPath, JSON.stringify(out), "utf8");
-    console.log(`✔ Uloženo: ${outPath} (okrsků: ${Object.keys(okrskyOut).length})`);
+    const outFile = path.join(OUT_DIR, `results_psp2025_${suffix}.json`);
+    fs.writeFileSync(outFile, JSON.stringify(payload));
+    console.log(`✔ Wrote ${outFile} (okrsků: ${Object.keys(out).length})`);
   }
-}
-
-main().catch((e) => {
+})().catch(e => {
   console.error(e);
   process.exit(1);
 });
