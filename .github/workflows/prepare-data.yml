@@ -5,7 +5,6 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
-# aby git-auto-commit mohl zapisovat
 permissions:
   contents: write
 
@@ -18,47 +17,28 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # --- 1) Checkout včetně LFS (KLÍČOVÉ!) ---
-      - name: Checkout repository (with LFS)
+      # 1) Checkout repo (LFS není potřeba – pracujeme s CSV v repo)
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          lfs: true
           fetch-depth: 0
 
-      # --- 2) Volitelný výpis pro debug ---
-      - name: Show manual ZIPs
-        run: |
-          echo "Manual dir content:"
-          ls -al manual || true
-          echo
-          echo "LFS files tracked:"
-          git lfs ls-files || true
-
-      # --- 3) Ochrana: pokud by se do běhu dostaly LFS pointery místo ZIPů, failneme srozumitelně ---
-      - name: Verify manual ZIPs are real (not LFS pointers)
+      # 2) Rychlá kontrola, že CSV existují
+      - name: Verify CSV inputs exist
         run: |
           set -e
-          shopt -s nullglob
-          bad=""
-          for z in manual/*.zip; do
-            # malé nebo pointerové soubory nechceme
-            size=$(stat -c%s "$z")
-            if [ "$size" -lt 256 ]; then
-              echo "::error file=$z::File is too small ($size B) – most likely a Git LFS pointer."
-              bad=1
-              continue
+          for f in manual/psp2025/pst4.csv manual/psp2025/pst4p.csv manual/psp2025/cns.csv; do
+            if [ ! -f "$f" ]; then
+              echo "::error file=$f::Missing required CSV file: $f"
+              exit 1
             fi
-            head -c 200 "$z" | grep -q "git-lfs.github.com/spec/v1" && {
-              echo "::error file=$z::This is a Git LFS pointer. Make sure checkout uses 'lfs: true'."
-              bad=1
-            }
+            sz=$(stat -c%s "$f")
+            if [ "$sz" -lt 1000 ]; then
+              echo "::warning file=$f::CSV looks very small ($sz B) – just double-check it's the full file."
+            fi
           done
-          if [ -n "$bad" ]; then
-            echo "At least one ZIP in /manual looks like an LFS pointer. Aborting."
-            exit 1
-          fi
 
-      # --- 4) Node + cachování npm ---
+      # 3) Node + cache
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -73,26 +53,29 @@ jobs:
             npm i
           fi
 
-      # --- 5) Kontrola secrets s jasnou chybou ---
-      - name: Check secrets
+      # 4) Zkontroluj secrets (mapování cílů + volitelný GeoJSON URL)
+      - name: Check required secrets
         run: |
-          [ -n "${{ secrets.TARGETS }}" ] || { echo "::error::Missing secret TARGETS"; exit 1; }
-          [ -n "${{ secrets.OKRSKY_2025_GEOJSON_URL }}" ] || { echo "::error::Missing secret OKRSKY_2025_GEOJSON_URL"; exit 1; }
-          echo "TARGETS=present"
-          echo "OKRSKY_2025_GEOJSON_URL=present"
+          [ -n "${{ secrets.TARGETS_PSP2025 }}" ] || { echo "::error::Missing secret TARGETS_PSP2025 (e.g. '554821_545911=7204:500011')"; exit 1; }
+          if [ -n "${{ secrets.OKRSKY_2025_GEOJSON_URL }}" ]; then
+            echo "OKRSKY_2025_GEOJSON_URL=present"
+          else
+            echo "OKRSKY_2025_GEOJSON_URL=missing (that's fine if you don't use it during build)"
+          fi
 
-      # --- 6) Build výsledků ---
-      - name: Run prepare-data (build JSON outputs)
+      # 5) Vygeneruj JSON pro appku z CSV (žádné stahování)
+      - name: Generate PSP 2025 results (CSV -> JSON)
         env:
-          TARGETS: ${{ secrets.TARGETS }}
-          OKRSKY_2025_GEOJSON_URL: ${{ secrets.OKRSKY_2025_GEOJSON_URL }}
-        run: node scripts/prepare-data.js
+          PSP2025_DIR: manual/psp2025
+          TARGETS_PSP2025: ${{ secrets.TARGETS_PSP2025 }}
+        run: node scripts/generate-results-psp2025.js
 
-      # --- 7) Commit vygenerovaných souborů ---
+      # (volitelné) Pokud máš i další roky se svými generátory, přidej podobné kroky sem.
+
+      # 6) Commit public/data/** zpátky do repa
       - name: Commit generated /public/data
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "chore(data): update public/data"
+          commit_message: "chore(data): update public/data (CSV pipeline)"
           file_pattern: |
             public/data/**
-
