@@ -1,4 +1,4 @@
-name: Prepare data
+name: Prepare data (PSP 2025)
 
 on:
   push:
@@ -9,37 +9,34 @@ permissions:
   contents: write
 
 concurrency:
-  group: prepare-data
+  group: prepare-data-psp2025
   cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-      # 1) Checkout repo (LFS není potřeba – pracujeme s CSV v repo)
-      - name: Checkout repository
+      - name: Checkout repository (no LFS needed)
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # 2) Rychlá kontrola, že CSV existují
+      - name: Debug secrets presence
+        run: |
+          echo "TARGETS_PSP2025=${{ secrets.TARGETS_PSP2025 && 'present' || 'MISSING' }}"
+          echo "OKRSKY_2025_GEOJSON_URL=${{ secrets.OKRSKY_2025_GEOJSON_URL && 'present' || 'MISSING' }}"
+
       - name: Verify CSV inputs exist
         run: |
           set -e
           for f in manual/psp2025/pst4.csv manual/psp2025/pst4p.csv manual/psp2025/cns.csv; do
-            if [ ! -f "$f" ]; then
-              echo "::error file=$f::Missing required CSV file: $f"
-              exit 1
-            fi
+            [ -f "$f" ] || { echo "::error file=$f::Missing file"; exit 1; }
             sz=$(stat -c%s "$f")
-            if [ "$sz" -lt 1000 ]; then
-              echo "::warning file=$f::CSV looks very small ($sz B) – just double-check it's the full file."
-            fi
+            [ "$sz" -gt 1000 ] || { echo "::error file=$f::File too small ($sz B)"; exit 1; }
           done
+          echo "All CSV inputs present."
 
-      # 3) Node + cache
-      - name: Setup Node
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -47,35 +44,15 @@ jobs:
 
       - name: Install dependencies
         run: |
-          if [ -f package-lock.json ]; then
-            npm ci
-          else
-            npm i
-          fi
+          if [ -f package-lock.json ]; then npm ci; else npm i; fi
 
-      # 4) Zkontroluj secrets (mapování cílů + volitelný GeoJSON URL)
-      - name: Check required secrets
-        run: |
-          [ -n "${{ secrets.TARGETS_PSP2025 }}" ] || { echo "::error::Missing secret TARGETS_PSP2025 (e.g. '554821_545911=7204:500011')"; exit 1; }
-          if [ -n "${{ secrets.OKRSKY_2025_GEOJSON_URL }}" ]; then
-            echo "OKRSKY_2025_GEOJSON_URL=present"
-          else
-            echo "OKRSKY_2025_GEOJSON_URL=missing (that's fine if you don't use it during build)"
-          fi
-
-      # 5) Vygeneruj JSON pro appku z CSV (žádné stahování)
-      - name: Generate PSP 2025 results (CSV -> JSON)
+      - name: Generate PSP 2025 results JSON
         env:
-          PSP2025_DIR: manual/psp2025
           TARGETS_PSP2025: ${{ secrets.TARGETS_PSP2025 }}
         run: node scripts/generate-results-psp2025.js
 
-      # (volitelné) Pokud máš i další roky se svými generátory, přidej podobné kroky sem.
-
-      # 6) Commit public/data/** zpátky do repa
       - name: Commit generated /public/data
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "chore(data): update public/data (CSV pipeline)"
-          file_pattern: |
-            public/data/**
+          commit_message: "chore(data): update PSP 2025 public/data"
+          file_pattern: public/data/**
