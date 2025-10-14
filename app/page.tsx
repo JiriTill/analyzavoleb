@@ -1,46 +1,86 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import maplibregl from "maplibre-gl";
+import maplibregl, { FilterSpecification, Map } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { Year, yearToTag, ResultMap, PrecinctResultMin } from "@/lib/types";
-import { loadResultsAllYears, getOkrsekIdFromProps } from "@/lib/dataClient";
+import {
+  loadResultsAllYears,
+  loadPrecinctsGeoJSON,
+  getOkrsekIdFromProps,
+} from "@/lib/dataClient";
 import { YearTabs } from "@/components/YearTabs";
 import { SidePanel } from "@/components/SidePanel";
 
-type FC = GeoJSON.FeatureCollection<GeoJSON.Geometry, Record<string, unknown>>;
+// ---------------- helpers ----------------
+const SEL_FILL = "precinct-selected";
+const SEL_LINE = "precinct-selected-outline";
+const SRC_ID = "precincts";
+const FILL_ID = "precinct-fill";
+const LINE_ID = "precinct-outline";
 
-/** Filtr na vybraný okrsek – OR přes několik možných klíčů v properties */
-function buildSelectionFilter(id: string | null) {
-  if (!id) return ["==", ["get", "___never___"], "__none__"]; // nic nevybere
+function buildSelectionFilter(id: string | null): FilterSpecification {
+  if (!id) {
+    // filtr který určitě nic nevybere
+    return ["==", ["get", "___none___"], "___none___"];
+  }
   const keys = [
+    "OKRSEK",
+    "CIS_OKRSEK",
     "CISLO_OKRSKU",
     "cislo_okrsku",
-    "CIS_OKRSEK",
-    "cis_okrsek",
-    "cis_okrsku",
-    "OKRSEK",
     "okrsek",
     "okrsek_cislo",
     "cislo_okrsku_text",
   ];
-  return ["any", ...keys.map((k) => ["==", ["to-string", ["get", k]], id])];
+  return ["any", ...keys.map((k) => ["==", ["to-string", ["get", k]], id])] as any;
 }
 
+function styleReady(map: Map, cb: () => void) {
+  if (map.isStyleLoaded()) cb();
+  else map.once("load", cb);
+}
+
+function safeSetFilter(map: Map, layerId: string, filter: FilterSpecification) {
+  if (map.getLayer(layerId)) {
+    try {
+      map.setFilter(layerId, filter);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+/** Zkusí vrátit GeoJSON pro daný rok; není-li dostupný, spadne na PSP 2025 */
+async function resolveGeoUrl(tag: string): Promise<string> {
+  const url = await loadPrecinctsGeoJSON(tag);
+  try {
+    const head = await fetch(url, { method: "HEAD", cache: "no-store" });
+    if (head.ok) return url;
+  } catch {
+    // ignore
+  }
+  // fallback na PSP 2025 (hranice stejné/stačí pro interakci, dokud nedoplníme data)
+  return await loadPrecinctsGeoJSON("psp2025");
+}
+
+// ---------------- component ----------------
 export default function Page() {
-  const mapRef = useRef<maplibregl.Map | null>(null);
+  const mapRef = useRef<Map | null>(null);
   const [year, setYear] = useState<Year>("2025");
   const [selectedOkrsek, setSelectedOkrsek] = useState<string | null>(null);
   const [results, setResults] = useState<Record<Year, ResultMap> | null>(null);
-  const [hasGeoForYear, setHasGeoForYear] = useState<boolean>(false);
+  const [geojsonUrl, setGeojsonUrl] = useState<string | null>(null);
   const [showAbout, setShowAbout] = useState(false);
 
-  // --- načti výsledkové JSONy (rok, který chybí, se prostě přeskočí) ---
+  // načtení výsledků (bez pádu, 2024/2022 mohou chybět)
   useEffect(() => {
-    loadResultsAllYears().then(setResults).catch(() => setResults(null));
+    loadResultsAllYears()
+      .then(setResults)
+      .catch(() => setResults(null));
   }, []);
 
-  // --- inicializace mapy ---
+  // inicializace mapy
   useEffect(() => {
     if (mapRef.current) return;
 
@@ -58,122 +98,109 @@ export default function Page() {
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
     mapRef.current = map;
 
-    map.once("load", () => {
-      // vytvoř zdroje/vrstvy prázdné – data doplníme níže
-      ensureLayers(map);
-      // první nahrání dat pro aktuální rok
-      void refreshYearLayer(map, year);
+    styleReady(map, async () => {
+      await refreshYearLayer(map, year);
 
-      // univerzální klik přes queryRenderedFeatures
-      map.on("click", (e) => {
-        const features = map.queryRenderedFeatures(e.point, { layers: ["precinct-fill"] });
-        const f = features?.[0];
-        const id = f?.properties ? getOkrsekIdFromProps(f.properties as any) : null;
+      // interakce – až PO vytvoření vrstev
+      map.on("mousemove", FILL_ID, () => (map.getCanvas().style.cursor = "pointer"));
+      map.on("mouseleave", FILL_ID, () => (map.getCanvas().style.cursor = ""));
+      map.on("click", FILL_ID, (e) => {
+        const f = e.features?.[0];
+        const id = f?.properties ? getOkrsekIdFromProps(f.properties) : null;
         if (!id) return;
-        setSelectedOkrsek(String(id));
-        map.setFilter("precinct-selected", buildSelectionFilter(String(id)) as any);
-        map.setFilter("precinct-selected-outline", buildSelectionFilter(String(id)) as any);
-      });
-
-      // kurzor
-      map.on("mousemove", (e) => {
-        const hit = map.queryRenderedFeatures(e.point, { layers: ["precinct-fill"] });
-        map.getCanvas().style.cursor = hit?.length ? "pointer" : "";
+        const idStr = String(id);
+        setSelectedOkrsek(idStr);
+        safeSetFilter(map, SEL_FILL, buildSelectionFilter(idStr));
+        safeSetFilter(map, SEL_LINE, buildSelectionFilter(idStr));
       });
     });
+
+    // cleanup při unmountu
+    return () => {
+      try {
+        map.remove();
+      } catch {
+        /* ignore */
+      }
+      mapRef.current = null;
+    };
   }, []);
 
-  // --- přepnutí roku ---
+  // změna roku – přenačti hranice a zruš výběr
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     setSelectedOkrsek(null);
-    map.setFilter("precinct-selected", buildSelectionFilter(null) as any);
-    map.setFilter("precinct-selected-outline", buildSelectionFilter(null) as any);
-    if (!map.isStyleLoaded()) {
-      map.once("load", () => void refreshYearLayer(map, year));
-    } else {
-      void refreshYearLayer(map, year);
-    }
+    styleReady(map, () => {
+      refreshYearLayer(map, year);
+    });
   }, [year]);
 
-  /** Vytvoř source a vrstvy, pokud ještě nejsou. */
-  function ensureLayers(map: maplibregl.Map) {
-    const srcId = "precincts";
-    const fillId = "precinct-fill";
-    const lineId = "precinct-outline";
-    const selFillId = "precinct-selected";
-    const selLineId = "precinct-selected-outline";
-
-    if (!map.getSource(srcId)) {
-      map.addSource(srcId, {
-        type: "geojson",
-        data: { type: "FeatureCollection", features: [] } as FC,
-      } as any);
-    }
-
-    if (!map.getLayer(fillId)) {
-      map.addLayer({
-        id: fillId,
-        type: "fill",
-        source: srcId,
-        paint: { "fill-color": "#1d4ed8", "fill-opacity": 0.08 },
-      });
-    }
-    if (!map.getLayer(lineId)) {
-      map.addLayer({
-        id: lineId,
-        type: "line",
-        source: srcId,
-        paint: { "line-color": "#1d4ed8", "line-width": 1.2 },
-      });
-    }
-    if (!map.getLayer(selFillId)) {
-      map.addLayer({
-        id: selFillId,
-        type: "fill",
-        source: srcId,
-        filter: buildSelectionFilter(null) as any,
-        paint: { "fill-color": "#0b3bbd", "fill-opacity": 0.28 },
-      });
-    }
-    if (!map.getLayer(selLineId)) {
-      map.addLayer({
-        id: selLineId,
-        type: "line",
-        source: srcId,
-        filter: buildSelectionFilter(null) as any,
-        paint: { "line-color": "#0b3bbd", "line-width": 2.2 },
-      });
-    }
-  }
-
-  /** Bezpečně načti GeoJSON pro daný rok. Když chybí, source vyčisti. */
-  async function refreshYearLayer(map: maplibregl.Map, y: Year) {
+  async function refreshYearLayer(map: Map, y: Year) {
     const tag = yearToTag[y];
-    const url = `/data/precincts_${tag}_554821_545911.geojson`;
+    const url = await resolveGeoUrl(tag);
+    setGeojsonUrl(url);
 
-    let data: FC | null = null;
-    try {
-      const res = await fetch(url, { cache: "no-store" });
-      if (res.ok) data = (await res.json()) as FC;
-    } catch {
-      // ignore
-    }
+    styleReady(map, () => {
+      const src = map.getSource(SRC_ID) as maplibregl.GeoJSONSource | undefined;
 
-    const src = map.getSource("precincts") as maplibregl.GeoJSONSource;
-    if (!src) {
-      ensureLayers(map);
-    }
+      if (src) {
+        // update existujícího zdroje (HEAD už proběhl; 404 tu nepošleme)
+        try {
+          (src as any).setData(url);
+        } catch {
+          // kdyby se i tak něco pokazilo, raději odpojíme výběr
+        }
+        safeSetFilter(map, SEL_FILL, buildSelectionFilter(null));
+        safeSetFilter(map, SEL_LINE, buildSelectionFilter(null));
+        return;
+      }
 
-    if (data) {
-      (map.getSource("precincts") as any).setData(data);
-      setHasGeoForYear(true);
-    } else {
-      // rok nemá geojson – vyčistíme data, ale vrstvy necháme existovat
-      (map.getSource("precincts") as any).setData({ type: "FeatureCollection", features: [] });
-      setHasGeoForYear(false);
-    }
+      // nově – vytvoř zdroj + vrstvy
+      map.addSource(SRC_ID, { type: "geojson", data: url } as any);
+
+      map.addLayer({
+        id: FILL_ID,
+        type: "fill",
+        source: SRC_ID,
+        paint: {
+          "fill-color": "#1d4ed8",
+          "fill-opacity": 0.10, // víc zprůhlednit
+        },
+      });
+
+      map.addLayer({
+        id: LINE_ID,
+        type: "line",
+        source: SRC_ID,
+        paint: {
+          "line-color": "#1d4ed8",
+          "line-width": 1.2,
+        },
+      });
+
+      map.addLayer({
+        id: SEL_FILL,
+        type: "fill",
+        source: SRC_ID,
+        filter: buildSelectionFilter(null),
+        paint: {
+          "fill-color": "#0b3bbd",
+          "fill-opacity": 0.30,
+        },
+      });
+
+      map.addLayer({
+        id: SEL_LINE,
+        type: "line",
+        source: SRC_ID,
+        filter: buildSelectionFilter(null),
+        paint: {
+          "line-color": "#0b3bbd",
+          "line-width": 2.2,
+        },
+      });
+    });
   }
 
   const selectedData: PrecinctResultMin | null = useMemo(() => {
@@ -188,6 +215,7 @@ export default function Page() {
 
   return (
     <div className="flex h-screen w-screen">
+      {/* horní badge + about */}
       <div className="absolute z-10 m-2">
         <div className="rounded bg-white/90 shadow px-2 py-1 text-sm">
           <div className="font-medium">Analytický nástroj pro volební kampaň</div>
@@ -199,7 +227,7 @@ export default function Page() {
           <div className="mt-2 rounded bg-white/95 shadow p-3 text-xs max-w-xs">
             Nástroj zobrazuje okrskové hranice a výsledky (2022, 2024, 2025) pro rychlou
             orientaci v kampani – kde je silná/slabá podpora a jak se vyvíjí účast. Autor:
-            Jiří Till.
+            Jiří Till.{" "}
             <button className="ml-2 text-gray-600" onClick={() => setShowAbout(false)}>
               ✕
             </button>
@@ -215,14 +243,13 @@ export default function Page() {
 
         {!results ? (
           <p>
-            Načítám data… Pokud se nic nenačte, zkontroluj, že v <code>/public/data</code>{" "}
-            existuje <code>results_*.json</code>.
+            Načítám data… Pokud se nic nenačte, zkontroluj prosím, že GitHub Actions
+            vygeneroval <code>/public/data/results_*.json</code>.
           </p>
-        ) : !hasGeoForYear ? (
+        ) : !geojsonUrl ? (
           <p>
-            Pro tento rok nejsou hranice okrsků. Zkus jiný rok nahoře.
-            <br />
-            (Chybí soubor <code>precincts_{yearToTag[year]}_554821_545911.geojson</code>.)
+            Chybí GeoJSON hranic. Pro 2025 se čeká URL v secretu{" "}
+            <code>OKRSKY_2025_GEOJSON_URL</code>.
           </p>
         ) : !selectedOkrsek ? (
           <p>👈 Klikni na okrsek v mapě pro zobrazení detailů a trendů.</p>
@@ -233,3 +260,4 @@ export default function Page() {
     </div>
   );
 }
+
